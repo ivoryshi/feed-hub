@@ -1,6 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 type Source = {
   id: number
@@ -33,15 +35,54 @@ const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
   podcast: { label: '播客',   cls: 'bg-purple-50 text-purple-600' },
 }
 
-const TRANSCRIPTION_LABELS: Record<string, string> = {
-  none:       '转写',
-  processing: '转写中…',
-  done:       '已转写',
-  error:      '转写失败，重试',
-}
+const EDITOR_TEMPLATE = `# 标题：写下你的文章标题
+
+副标题或一句话导读
+
+---
+
+这里是导语段落。简短有力，点出本文核心问题或观察。
+
+## 01 第一节标题
+
+正文段落。支持**加粗关键词**，可以在段落中直接强调重点内容。
+
+1. 第一个要点
+2. 第二个要点
+3. 第三个要点
+
+> **核心结论**：用引用块高亮最重要的判断或结论。
+
+## 02 第二节标题
+
+正文内容。
+
+| 对比项 | 方案 A | 方案 B |
+|--------|--------|--------|
+| 指标 1 | 数值   | 数值   |
+
+## 03 结论
+
+总结段落。回应导语提出的问题，给出明确判断。
+
+---
+
+*作者：你的名字 | 日期*
+`
+
+const SNIPPETS = [
+  { label: '+ 大标题', text: '\n## 0X 节标题\n\n' },
+  { label: '+ 引用块', text: '\n> **核心结论**：\n\n' },
+  { label: '+ 表格', text: '\n| 列1 | 列2 | 列3 |\n|-----|-----|-----|\n| 内容 | 内容 | 内容 |\n\n' },
+  { label: '+ 图片', text: '\n![图注](图片URL)\n\n' },
+  { label: '+ 列表', text: '\n1. 要点一\n2. 要点二\n3. 要点三\n\n' },
+  { label: '+ 分割线', text: '\n---\n\n' },
+]
 
 export default function Home() {
-  const [tab, setTab] = useState<'articles' | 'sources'>('articles')
+  const [tab, setTab] = useState<'articles' | 'sources' | 'editor'>('articles')
+
+  // Feed state
   const [sources, setSources] = useState<Source[]>([])
   const [articles, setArticles] = useState<Article[]>([])
   const [total, setTotal] = useState(0)
@@ -54,6 +95,12 @@ export default function Home() {
   const [adding, setAdding] = useState(false)
   const [fetchMsg, setFetchMsg] = useState('')
   const [transcribing, setTranscribing] = useState<Record<number, boolean>>({})
+
+  // Editor state
+  const [md, setMd] = useState(EDITOR_TEMPLATE)
+  const [copied, setCopied] = useState(false)
+  const previewRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const loadSources = useCallback(async () => {
     const res = await fetch('/api/sources')
@@ -155,7 +202,6 @@ export default function Home() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ article_id: articleId }),
     })
-    // 轮询状态
     const poll = setInterval(async () => {
       const res = await fetch(`/api/transcribe/status?id=${articleId}`)
       const data = await res.json()
@@ -167,262 +213,343 @@ export default function Home() {
     }, 3000)
   }
 
+  // Editor handlers
+  const insertSnippet = useCallback((text: string) => {
+    const el = textareaRef.current
+    if (!el) return
+    const start = el.selectionStart
+    const end = el.selectionEnd
+    const newVal = md.slice(0, start) + text + md.slice(end)
+    setMd(newVal)
+    setTimeout(() => {
+      el.focus()
+      el.setSelectionRange(start + text.length, start + text.length)
+    }, 0)
+  }, [md])
+
+  const handleCopy = async () => {
+    if (!previewRef.current) return
+    try {
+      const html = previewRef.current.innerHTML
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([md], { type: 'text/plain' }),
+        })
+      ])
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      await navigator.clipboard.writeText(md)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }
+
   const totalPages = Math.ceil(total / 20)
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8">
+    <div className="flex flex-col min-h-screen">
       {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Feed Hub</h1>
-          <p className="text-sm text-gray-500 mt-0.5">投研信息聚合知识库</p>
-        </div>
-        <button
-          onClick={handleFetchAll}
-          disabled={fetching}
-          className="px-4 py-2 bg-black text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50"
-        >
-          {fetching ? '抓取中...' : '全部更新'}
-        </button>
-      </div>
-
-      {fetchMsg && (
-        <div className="mb-4 px-4 py-2 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg">
-          {fetchMsg}
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-gray-200">
-        {(['articles', 'sources'] as const).map(t => (
+      <div className="max-w-5xl mx-auto px-4 pt-8 pb-0 w-full">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">Feed Hub</h1>
+            <p className="text-sm text-gray-500 mt-0.5">投研信息聚合知识库</p>
+          </div>
           <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors ${
-              tab === t ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
+            onClick={handleFetchAll}
+            disabled={fetching}
+            className="px-4 py-2 bg-black text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50"
           >
-            {t === 'articles' ? `文章 (${total})` : `订阅源 (${sources.length})`}
+            {fetching ? '抓取中...' : '全部更新'}
           </button>
-        ))}
+        </div>
+
+        {fetchMsg && (
+          <div className="mb-4 px-4 py-2 bg-green-50 border border-green-200 text-green-700 text-sm rounded-lg">
+            {fetchMsg}
+          </div>
+        )}
+
+        {/* Tabs */}
+        <div className="flex gap-1 border-b border-gray-200">
+          {([
+            ['articles', `文章 (${total})`],
+            ['sources', `订阅源 (${sources.length})`],
+            ['editor', '写文章'],
+          ] as const).map(([t, label]) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 text-sm font-medium -mb-px border-b-2 transition-colors ${
+                tab === t ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {tab === 'articles' && (
-        <div className="flex gap-6">
-          {/* Sidebar */}
-          <div className="w-44 shrink-0">
-            <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">来源</div>
-            <ul className="space-y-1">
-              <li>
-                <button
-                  onClick={() => { setSelectedSource(null); setPage(1) }}
-                  className={`w-full text-left px-3 py-1.5 text-sm rounded-md ${
-                    !selectedSource ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'
-                  }`}
-                >
-                  全部
-                </button>
-              </li>
-              {sources.map(s => (
-                <li key={s.id}>
-                  <button
-                    onClick={() => { setSelectedSource(s.id); setPage(1) }}
-                    className={`w-full text-left px-3 py-1.5 text-sm rounded-md truncate ${
-                      selectedSource === s.id ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'
-                    }`}
-                  >
-                    {s.name}
-                    <span className="ml-1 text-gray-400 text-xs">({s.article_count})</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Main */}
-          <div className="flex-1 min-w-0">
-            <form onSubmit={handleSearch} className="flex gap-2 mb-5">
-              <input
-                value={searchInput}
-                onChange={e => setSearchInput(e.target.value)}
-                placeholder="搜索标题、摘要、正文、转写内容..."
-                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-gray-400"
-              />
-              <button type="submit" className="px-4 py-2 bg-black text-white text-sm rounded-lg hover:bg-gray-800">
-                搜索
-              </button>
-              {query && (
-                <button type="button" onClick={() => { setQuery(''); setSearchInput(''); setPage(1) }}
-                  className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">
-                  清除
-                </button>
-              )}
-            </form>
-
-            <div className="space-y-3">
-              {articles.length === 0 && (
-                <p className="text-gray-400 text-sm py-12 text-center">暂无内容，请先在「订阅源」tab 添加并更新</p>
-              )}
-              {articles.map(a => {
-                const srcMeta = SOURCE_LABELS[a.source_type] || SOURCE_LABELS.rss
-                const isPodcast = a.source_type === 'podcast' || !!a.audio_url
-                return (
-                  <div key={a.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-colors">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        {a.url ? (
-                          <a href={a.url} target="_blank" rel="noopener noreferrer"
-                            className="font-medium text-sm hover:underline leading-snug block"
-                            dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title }}
-                          />
-                        ) : (
-                          <p className="font-medium text-sm leading-snug"
-                            dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title }}
-                          />
-                        )}
-                        {(a.summary_snippet || a.summary) && (
-                          <p className="text-xs text-gray-500 mt-1.5 line-clamp-2"
-                            dangerouslySetInnerHTML={{ __html: a.summary_snippet || a.summary || '' }}
-                          />
-                        )}
-                      </div>
-                      {/* 播客转写按钮 */}
-                      {isPodcast && a.transcription_status !== 'done' && (
-                        <button
-                          onClick={() => handleTranscribe(a.id)}
-                          disabled={transcribing[a.id] || a.transcription_status === 'processing'}
-                          className="shrink-0 text-xs px-2.5 py-1.5 border border-purple-200 text-purple-600 rounded-lg hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
-                        >
-                          {transcribing[a.id] || a.transcription_status === 'processing'
-                            ? '转写中…'
-                            : TRANSCRIPTION_LABELS[a.transcription_status] || '转写'}
-                        </button>
-                      )}
-                      {isPodcast && a.transcription_status === 'done' && (
-                        <span className="shrink-0 text-xs px-2.5 py-1.5 bg-purple-50 text-purple-400 rounded-lg">✓ 已转写</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-2.5 text-xs text-gray-400">
-                      <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${srcMeta.cls}`}>
-                        {srcMeta.label}
-                      </span>
-                      <span>{a.source_name}</span>
-                      {a.author && <span>{a.author}</span>}
-                      {a.published_at && <span>{a.published_at.slice(0, 10)}</span>}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-
-            {!query && totalPages > 1 && (
-              <div className="flex items-center gap-2 mt-6 justify-center">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                  className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">
-                  上一页
-                </button>
-                <span className="text-sm text-gray-500">{page} / {totalPages}</span>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                  className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">
-                  下一页
-                </button>
+      {/* Tab content */}
+      {tab !== 'editor' && (
+        <div className="max-w-5xl mx-auto px-4 py-6 w-full">
+          {tab === 'articles' && (
+            <div className="flex gap-6">
+              <div className="w-44 shrink-0">
+                <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">来源</div>
+                <ul className="space-y-1">
+                  <li>
+                    <button
+                      onClick={() => { setSelectedSource(null); setPage(1) }}
+                      className={`w-full text-left px-3 py-1.5 text-sm rounded-md ${!selectedSource ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'}`}
+                    >
+                      全部
+                    </button>
+                  </li>
+                  {sources.map(s => (
+                    <li key={s.id}>
+                      <button
+                        onClick={() => { setSelectedSource(s.id); setPage(1) }}
+                        className={`w-full text-left px-3 py-1.5 text-sm rounded-md truncate ${selectedSource === s.id ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'}`}
+                      >
+                        {s.name}
+                        <span className="ml-1 text-gray-400 text-xs">({s.article_count})</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               </div>
-            )}
-          </div>
-        </div>
-      )}
 
-      {tab === 'sources' && (
-        <div className="max-w-2xl">
-          <div className="bg-white border border-gray-100 rounded-xl p-5 mb-6">
-            <h2 className="font-medium text-sm mb-4">添加订阅源</h2>
-            <form onSubmit={handleAddSource} className="space-y-3">
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-xs text-gray-500 mb-1 block">名称</label>
+              <div className="flex-1 min-w-0">
+                <form onSubmit={handleSearch} className="flex gap-2 mb-5">
                   <input
-                    value={addForm.name}
-                    onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
-                    placeholder="e.g. 半导体行业观察"
-                    required
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-gray-400"
+                    value={searchInput}
+                    onChange={e => setSearchInput(e.target.value)}
+                    placeholder="搜索标题、摘要、正文、转写内容..."
+                    className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-gray-400"
                   />
+                  <button type="submit" className="px-4 py-2 bg-black text-white text-sm rounded-lg hover:bg-gray-800">搜索</button>
+                  {query && (
+                    <button type="button" onClick={() => { setQuery(''); setSearchInput(''); setPage(1) }}
+                      className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">清除</button>
+                  )}
+                </form>
+
+                <div className="space-y-3">
+                  {articles.length === 0 && (
+                    <p className="text-gray-400 text-sm py-12 text-center">暂无内容，请先在「订阅源」tab 添加并更新</p>
+                  )}
+                  {articles.map(a => {
+                    const srcMeta = SOURCE_LABELS[a.source_type] || SOURCE_LABELS.rss
+                    const isPodcast = a.source_type === 'podcast' || !!a.audio_url
+                    return (
+                      <div key={a.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            {a.url ? (
+                              <a href={a.url} target="_blank" rel="noopener noreferrer"
+                                className="font-medium text-sm hover:underline leading-snug block"
+                                dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title }}
+                              />
+                            ) : (
+                              <p className="font-medium text-sm leading-snug"
+                                dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title }}
+                              />
+                            )}
+                            {(a.summary_snippet || a.summary) && (
+                              <p className="text-xs text-gray-500 mt-1.5 line-clamp-2"
+                                dangerouslySetInnerHTML={{ __html: a.summary_snippet || a.summary || '' }}
+                              />
+                            )}
+                          </div>
+                          {isPodcast && a.transcription_status !== 'done' && (
+                            <button
+                              onClick={() => handleTranscribe(a.id)}
+                              disabled={transcribing[a.id] || a.transcription_status === 'processing'}
+                              className="shrink-0 text-xs px-2.5 py-1.5 border border-purple-200 text-purple-600 rounded-lg hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
+                            >
+                              {transcribing[a.id] || a.transcription_status === 'processing' ? '转写中…' : '转写'}
+                            </button>
+                          )}
+                          {isPodcast && a.transcription_status === 'done' && (
+                            <span className="shrink-0 text-xs px-2.5 py-1.5 bg-purple-50 text-purple-400 rounded-lg">✓ 已转写</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 mt-2.5 text-xs text-gray-400">
+                          <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${srcMeta.cls}`}>{srcMeta.label}</span>
+                          <span>{a.source_name}</span>
+                          {a.author && <span>{a.author}</span>}
+                          {a.published_at && <span>{a.published_at.slice(0, 10)}</span>}
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-                <div className="w-28">
-                  <label className="text-xs text-gray-500 mb-1 block">类型</label>
-                  <select
-                    value={addForm.type}
-                    onChange={e => setAddForm(f => ({ ...f, type: e.target.value }))}
-                    className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-gray-400 bg-white"
-                  >
-                    <option value="rss">RSS</option>
-                    <option value="wechat">公众号</option>
-                    <option value="podcast">播客</option>
-                  </select>
-                </div>
+
+                {!query && totalPages > 1 && (
+                  <div className="flex items-center gap-2 mt-6 justify-center">
+                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                      className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">上一页</button>
+                    <span className="text-sm text-gray-500">{page} / {totalPages}</span>
+                    <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                      className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">下一页</button>
+                  </div>
+                )}
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">RSS / Feed URL</label>
-                <input
-                  value={addForm.url}
-                  onChange={e => setAddForm(f => ({ ...f, url: e.target.value }))}
-                  placeholder="https://..."
-                  required
-                  type="url"
-                  className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-gray-400"
-                />
+            </div>
+          )}
+
+          {tab === 'sources' && (
+            <div className="max-w-2xl">
+              <div className="bg-white border border-gray-100 rounded-xl p-5 mb-6">
+                <h2 className="font-medium text-sm mb-4">添加订阅源</h2>
+                <form onSubmit={handleAddSource} className="space-y-3">
+                  <div className="flex gap-3">
+                    <div className="flex-1">
+                      <label className="text-xs text-gray-500 mb-1 block">名称</label>
+                      <input
+                        value={addForm.name}
+                        onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
+                        placeholder="e.g. 半导体行业观察"
+                        required
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-gray-400"
+                      />
+                    </div>
+                    <div className="w-28">
+                      <label className="text-xs text-gray-500 mb-1 block">类型</label>
+                      <select
+                        value={addForm.type}
+                        onChange={e => setAddForm(f => ({ ...f, type: e.target.value }))}
+                        className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-gray-400 bg-white"
+                      >
+                        <option value="rss">RSS</option>
+                        <option value="wechat">公众号</option>
+                        <option value="podcast">播客</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">RSS / Feed URL</label>
+                    <input
+                      value={addForm.url}
+                      onChange={e => setAddForm(f => ({ ...f, url: e.target.value }))}
+                      placeholder="https://..."
+                      required
+                      type="url"
+                      className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg outline-none focus:border-gray-400"
+                    />
+                  </div>
+                  <p className="text-xs text-gray-400">播客填小宇宙 Feed URL：https://feeds.xiaoyuzhoufm.com/podcast/&lt;id&gt;</p>
+                  <button type="submit" disabled={adding}
+                    className="px-4 py-2 bg-black text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50">
+                    {adding ? '添加中...' : '添加'}
+                  </button>
+                </form>
               </div>
-              <p className="text-xs text-gray-400">
-                播客填小宇宙 Feed URL，格式：https://feeds.xiaoyuzhoufm.com/podcast/&lt;id&gt;
-              </p>
-              <button type="submit" disabled={adding}
-                className="px-4 py-2 bg-black text-white text-sm rounded-lg hover:bg-gray-800 disabled:opacity-50">
-                {adding ? '添加中...' : '添加'}
+
+              <div className="space-y-2">
+                {sources.length === 0 && <p className="text-gray-400 text-sm py-4 text-center">还没有订阅源</p>}
+                {sources.map(s => {
+                  const srcMeta = SOURCE_LABELS[s.type] || SOURCE_LABELS.rss
+                  return (
+                    <div key={s.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sm">{s.name}</span>
+                          <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${srcMeta.cls}`}>{srcMeta.label}</span>
+                          <span className="text-xs text-gray-400">{s.article_count} 条</span>
+                        </div>
+                        <p className="text-xs text-gray-400 truncate mt-0.5">{s.url}</p>
+                        {s.last_fetched_at && <p className="text-xs text-gray-300 mt-0.5">上次更新 {s.last_fetched_at.slice(0, 16)}</p>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button onClick={() => handleFetchOne(s.id)} disabled={fetching}
+                          className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40">更新</button>
+                        <button onClick={() => handleToggleSource(s.id, s.enabled)}
+                          className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
+                          {s.enabled ? '启用中' : '已暂停'}
+                        </button>
+                        <button onClick={() => handleDeleteSource(s.id)}
+                          className="text-xs px-2.5 py-1.5 text-red-400 border border-red-100 rounded-lg hover:bg-red-50">删除</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Editor tab — full height */}
+      {tab === 'editor' && (
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Editor toolbar */}
+          <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-100 shrink-0">
+            {SNIPPETS.map(s => (
+              <button key={s.label} onClick={() => insertSnippet(s.text)}
+                className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 whitespace-nowrap">
+                {s.label}
               </button>
-            </form>
+            ))}
+            <div className="flex-1" />
+            <button onClick={() => setMd(EDITOR_TEMPLATE)}
+              className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">
+              新建
+            </button>
+            <button onClick={handleCopy}
+              className="text-xs px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-800">
+              {copied ? '已复制 ✓' : '复制富文本'}
+            </button>
           </div>
 
-          <div className="space-y-2">
-            {sources.length === 0 && (
-              <p className="text-gray-400 text-sm py-4 text-center">还没有订阅源</p>
-            )}
-            {sources.map(s => {
-              const srcMeta = SOURCE_LABELS[s.type] || SOURCE_LABELS.rss
-              return (
-                <div key={s.id} className="bg-white border border-gray-100 rounded-xl px-4 py-3 flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{s.name}</span>
-                      <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${srcMeta.cls}`}>
-                        {srcMeta.label}
-                      </span>
-                      <span className="text-xs text-gray-400">{s.article_count} 条</span>
-                    </div>
-                    <p className="text-xs text-gray-400 truncate mt-0.5">{s.url}</p>
-                    {s.last_fetched_at && (
-                      <p className="text-xs text-gray-300 mt-0.5">上次更新 {s.last_fetched_at.slice(0, 16)}</p>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => handleFetchOne(s.id)} disabled={fetching}
-                      className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-40">
-                      更新
-                    </button>
-                    <button onClick={() => handleToggleSource(s.id, s.enabled)}
-                      className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500">
-                      {s.enabled ? '启用中' : '已暂停'}
-                    </button>
-                    <button onClick={() => handleDeleteSource(s.id)}
-                      className="text-xs px-2.5 py-1.5 text-red-400 border border-red-100 rounded-lg hover:bg-red-50">
-                      删除
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
+          {/* Editor + Preview */}
+          <div className="flex flex-1 overflow-hidden">
+            <div className="w-1/2 flex flex-col border-r border-gray-200">
+              <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs text-gray-400">Markdown</div>
+              <textarea
+                ref={textareaRef}
+                value={md}
+                onChange={e => setMd(e.target.value)}
+                className="flex-1 p-5 text-sm font-mono leading-relaxed resize-none outline-none bg-white text-gray-800"
+                spellCheck={false}
+              />
+            </div>
+            <div className="w-1/2 overflow-y-auto bg-white">
+              <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs text-gray-400 sticky top-0">预览</div>
+              <div ref={previewRef} className="px-10 py-8 max-w-2xl mx-auto article-preview">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>
+              </div>
+            </div>
           </div>
         </div>
       )}
+
+      <style jsx global>{`
+        .article-preview {
+          font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", sans-serif;
+          font-size: 15px; line-height: 1.8; color: #333;
+        }
+        .article-preview h1 { font-size: 22px; font-weight: bold; line-height: 1.4; margin: 0 0 8px 0; color: #111; }
+        .article-preview h2 { font-size: 17px; font-weight: bold; margin: 32px 0 12px 0; color: #111; padding-left: 10px; border-left: 3px solid #111; }
+        .article-preview h3 { font-size: 15px; font-weight: bold; margin: 20px 0 8px 0; color: #333; }
+        .article-preview p { margin: 0 0 16px 0; text-align: justify; }
+        .article-preview strong { font-weight: bold; color: #111; }
+        .article-preview blockquote { margin: 20px 0; padding: 12px 16px; background: #f7f7f7; border-left: 3px solid #555; border-radius: 2px; color: #444; }
+        .article-preview blockquote p { margin: 0; }
+        .article-preview ol, .article-preview ul { padding-left: 20px; margin: 0 0 16px 0; }
+        .article-preview li { margin-bottom: 6px; }
+        .article-preview table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+        .article-preview th { background: #f0f0f0; font-weight: bold; padding: 8px 12px; border: 1px solid #ddd; text-align: left; }
+        .article-preview td { padding: 8px 12px; border: 1px solid #ddd; }
+        .article-preview tr:nth-child(even) td { background: #fafafa; }
+        .article-preview img { max-width: 100%; margin: 12px 0 4px 0; border-radius: 4px; }
+        .article-preview hr { border: none; border-top: 1px solid #eee; margin: 28px 0; }
+        .article-preview code { background: #f5f5f5; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+        .article-preview em { color: #888; font-style: normal; font-size: 13px; }
+      `}</style>
     </div>
   )
 }
