@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local database
 /data/
+
+# lock file (too large for slow connections)
+package-lock.json
