@@ -16,9 +16,14 @@ export async function GET(req: NextRequest) {
   const articles = db.prepare(`
     SELECT a.id, a.title, a.url, a.summary, a.author, a.published_at, a.fetched_at,
            a.audio_url, a.transcription_status,
-           s.name as source_name, s.type as source_type
+           s.name as source_name, s.type as source_type,
+           m.summary_ai, m.content_type, m.time_horizon, m.signal_type,
+           m.sector, m.processed_at,
+           (SELECT GROUP_CONCAT(factor_name || ':' || factor_direction)
+            FROM article_factors WHERE article_id = a.id) as factors_raw
     FROM articles a
     JOIN sources s ON s.id = a.source_id
+    LEFT JOIN article_meta m ON m.article_id = a.id
     ${where}
     ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
     LIMIT ? OFFSET ?

@@ -14,11 +14,16 @@ export async function GET(req: NextRequest) {
     SELECT a.id, a.title, a.url, a.summary, a.author, a.published_at,
            a.audio_url, a.transcription_status,
            s.name as source_name, s.type as source_type,
+           m.summary_ai, m.content_type, m.time_horizon, m.signal_type,
+           m.sector, m.processed_at,
+           (SELECT GROUP_CONCAT(factor_name || ':' || factor_direction)
+            FROM article_factors WHERE article_id = a.id) as factors_raw,
            snippet(articles_fts, 0, '<mark>', '</mark>', '...', 20) as title_snippet,
            snippet(articles_fts, 1, '<mark>', '</mark>', '...', 40) as summary_snippet
     FROM articles_fts
     JOIN articles a ON a.id = articles_fts.rowid
     JOIN sources s ON s.id = a.source_id
+    LEFT JOIN article_meta m ON m.article_id = a.id
     WHERE articles_fts MATCH ?
     ORDER BY rank
     LIMIT ?

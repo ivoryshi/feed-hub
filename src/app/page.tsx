@@ -25,8 +25,36 @@ type Article = {
   source_type: string
   audio_url: string | null
   transcription_status: string
+  // AI meta
+  summary_ai: string | null
+  content_type: string | null
+  time_horizon: string | null
+  signal_type: string | null
+  sector: string | null
+  processed_at: string | null
+  factors_raw: string | null
   title_snippet?: string
   summary_snippet?: string
+}
+
+const CONTENT_TYPE_LABELS: Record<string, { label: string; cls: string }> = {
+  news:          { label: '资讯', cls: 'bg-gray-100 text-gray-500' },
+  analysis:      { label: '分析', cls: 'bg-blue-50 text-blue-600' },
+  education:     { label: '投教', cls: 'bg-teal-50 text-teal-600' },
+  opinion:       { label: '观点', cls: 'bg-yellow-50 text-yellow-600' },
+  data_report:   { label: '数据', cls: 'bg-orange-50 text-orange-600' },
+  strategy_note: { label: '策略', cls: 'bg-indigo-50 text-indigo-600' },
+}
+
+const SIGNAL_LABELS: Record<string, { label: string; cls: string }> = {
+  bullish: { label: '看多', cls: 'bg-green-50 text-green-600' },
+  bearish: { label: '看空', cls: 'bg-red-50 text-red-600' },
+  neutral: { label: '中性', cls: 'bg-gray-100 text-gray-500' },
+}
+
+const FACTOR_LABELS: Record<string, string> = {
+  value: '价值', momentum: '动量', quality: '质量', size: '规模',
+  low_vol: '低波', macro: '宏观', carry: '套利', growth: '成长', other: '其他',
 }
 
 const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
@@ -95,6 +123,7 @@ export default function Home() {
   const [adding, setAdding] = useState(false)
   const [fetchMsg, setFetchMsg] = useState('')
   const [transcribing, setTranscribing] = useState<Record<number, boolean>>({})
+  const [processing, setProcessing] = useState<Record<number, boolean>>({})
 
   // Editor state
   const [md, setMd] = useState(EDITOR_TEMPLATE)
@@ -211,6 +240,17 @@ export default function Home() {
         loadArticles()
       }
     }, 3000)
+  }
+
+  const handleProcess = async (articleId: number) => {
+    setProcessing(p => ({ ...p, [articleId]: true }))
+    await fetch('/api/process', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ article_id: articleId }),
+    })
+    setProcessing(p => ({ ...p, [articleId]: false }))
+    loadArticles()
   }
 
   // Editor handlers
@@ -344,6 +384,12 @@ export default function Home() {
                   {articles.map(a => {
                     const srcMeta = SOURCE_LABELS[a.source_type] || SOURCE_LABELS.rss
                     const isPodcast = a.source_type === 'podcast' || !!a.audio_url
+                    const ctMeta = a.content_type ? CONTENT_TYPE_LABELS[a.content_type] : null
+                    const sigMeta = a.signal_type ? SIGNAL_LABELS[a.signal_type] : null
+                    const factors = a.factors_raw
+                      ? a.factors_raw.split(',').map(f => { const [n, d] = f.split(':'); return { name: n, dir: d } })
+                      : []
+                    const displaySummary = a.summary_ai || a.summary_snippet || a.summary
                     return (
                       <div key={a.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-colors">
                         <div className="flex items-start justify-between gap-3">
@@ -358,27 +404,64 @@ export default function Home() {
                                 dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title }}
                               />
                             )}
-                            {(a.summary_snippet || a.summary) && (
-                              <p className="text-xs text-gray-500 mt-1.5 line-clamp-2"
-                                dangerouslySetInnerHTML={{ __html: a.summary_snippet || a.summary || '' }}
+                            {displaySummary && (
+                              <p className={`text-xs mt-1.5 line-clamp-2 ${a.summary_ai ? 'text-gray-600' : 'text-gray-400'}`}
+                                dangerouslySetInnerHTML={{ __html: a.summary_snippet || displaySummary }}
                               />
                             )}
+                            {factors.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-2">
+                                {factors.map(f => (
+                                  <span key={f.name + f.dir}
+                                    className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
+                                      f.dir === 'positive' ? 'bg-green-50 text-green-600' :
+                                      f.dir === 'negative' ? 'bg-red-50 text-red-500' :
+                                      'bg-gray-100 text-gray-500'
+                                    }`}>
+                                    {FACTOR_LABELS[f.name] || f.name}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                          {isPodcast && a.transcription_status !== 'done' && (
-                            <button
-                              onClick={() => handleTranscribe(a.id)}
-                              disabled={transcribing[a.id] || a.transcription_status === 'processing'}
-                              className="shrink-0 text-xs px-2.5 py-1.5 border border-purple-200 text-purple-600 rounded-lg hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
-                            >
-                              {transcribing[a.id] || a.transcription_status === 'processing' ? '转写中…' : '转写'}
-                            </button>
-                          )}
-                          {isPodcast && a.transcription_status === 'done' && (
-                            <span className="shrink-0 text-xs px-2.5 py-1.5 bg-purple-50 text-purple-400 rounded-lg">✓ 已转写</span>
-                          )}
+                          <div className="flex flex-col items-end gap-1.5 shrink-0">
+                            {isPodcast && a.transcription_status !== 'done' && (
+                              <button
+                                onClick={() => handleTranscribe(a.id)}
+                                disabled={transcribing[a.id] || a.transcription_status === 'processing'}
+                                className="text-xs px-2.5 py-1.5 border border-purple-200 text-purple-600 rounded-lg hover:bg-purple-50 disabled:opacity-50 whitespace-nowrap"
+                              >
+                                {transcribing[a.id] || a.transcription_status === 'processing' ? '转写中…' : '转写'}
+                              </button>
+                            )}
+                            {isPodcast && a.transcription_status === 'done' && (
+                              <span className="text-xs px-2.5 py-1.5 bg-purple-50 text-purple-400 rounded-lg">✓ 已转写</span>
+                            )}
+                            {!a.processed_at ? (
+                              <button
+                                onClick={() => handleProcess(a.id)}
+                                disabled={processing[a.id]}
+                                className="text-xs px-2.5 py-1.5 border border-gray-200 text-gray-500 rounded-lg hover:bg-gray-50 disabled:opacity-50 whitespace-nowrap"
+                              >
+                                {processing[a.id] ? 'AI 处理中…' : 'AI 分析'}
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => handleProcess(a.id)}
+                                disabled={processing[a.id]}
+                                className="text-xs px-2.5 py-1.5 text-gray-300 hover:text-gray-400 disabled:opacity-50 whitespace-nowrap"
+                                title="重新分析"
+                              >
+                                {processing[a.id] ? '处理中…' : '↺'}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 mt-2.5 text-xs text-gray-400">
+                        <div className="flex items-center gap-2 mt-2.5 text-xs text-gray-400 flex-wrap">
                           <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${srcMeta.cls}`}>{srcMeta.label}</span>
+                          {ctMeta && <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${ctMeta.cls}`}>{ctMeta.label}</span>}
+                          {sigMeta && <span className={`px-1.5 py-0.5 rounded text-[11px] font-medium ${sigMeta.cls}`}>{sigMeta.label}</span>}
+                          {a.sector && <span className="text-gray-400">{a.sector}</span>}
                           <span>{a.source_name}</span>
                           {a.author && <span>{a.author}</span>}
                           {a.published_at && <span>{a.published_at.slice(0, 10)}</span>}
