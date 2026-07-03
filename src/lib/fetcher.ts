@@ -37,10 +37,16 @@ export async function fetchSource(sourceId: number) {
     }
   })
 
-  const items = (feed.items || []).slice(0, 50).map(item => {
+  const items = (feed.items || []).slice(0, 100).map(item => {
     const audioUrl = item.enclosure?.url && item.enclosure.type?.startsWith('audio')
       ? item.enclosure.url
       : null
+
+    // 统一转 ISO 8601，避免 RSS RFC-822 与 WeChat ISO 混排序错乱
+    const rawDate = item.isoDate || item.pubDate || null
+    const published_at = rawDate ? (() => {
+      try { return new Date(rawDate).toISOString() } catch { return rawDate }
+    })() : null
 
     return {
       source_id: source.id,
@@ -50,7 +56,7 @@ export async function fetchSource(sourceId: number) {
       summary: item.contentSnippet || item.summary || null,
       content: item['content:encoded'] || item.content || null,
       author: item.creator || item.author || null,
-      published_at: item.pubDate || item.isoDate || null,
+      published_at,
       audio_url: audioUrl,
     }
   })
