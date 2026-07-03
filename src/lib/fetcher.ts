@@ -30,10 +30,14 @@ export async function fetchSource(sourceId: number) {
   `)
 
   let inserted = 0
+  const newIds: number[] = []
   const insertMany = db.transaction((items: Parameters<typeof insert>[0][]) => {
     for (const item of items) {
       const result = insert.run(item)
-      if (result.changes > 0) inserted++
+      if (result.changes > 0) {
+        inserted++
+        newIds.push(result.lastInsertRowid as number)
+      }
     }
   })
 
@@ -64,7 +68,7 @@ export async function fetchSource(sourceId: number) {
   insertMany(items)
   db.prepare(`UPDATE sources SET last_fetched_at = datetime('now') WHERE id = ?`).run(sourceId)
 
-  return { inserted, total: items.length }
+  return { inserted, total: items.length, newIds }
 }
 
 export async function fetchAllSources() {
