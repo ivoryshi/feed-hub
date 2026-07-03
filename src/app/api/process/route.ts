@@ -30,8 +30,11 @@ ${text}
       "factor_name": "其中之一：value/momentum/quality/size/low_vol/macro/carry/growth/other",
       "factor_direction": "其中之一：positive/negative/neutral"
     }
-  ]
-}`
+  ],
+  "tags": ["主题标签1", "主题标签2", "主题标签3"]
+}
+
+tags 说明：提取3-6个最能描述文章核心主题的中文标签，如「美联储」「半导体」「港股」「量化策略」「资产配置」等。`
 }
 
 export async function POST(req: NextRequest) {
@@ -122,9 +125,31 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // 写入 tags（upsert tag，再关联 article_tags）
+  db.prepare('DELETE FROM article_tags WHERE article_id = ? AND source = ?').run(article_id, 'ai')
+  const rawTags = Array.isArray(parsed.tags) ? parsed.tags : []
+  const tags = rawTags
+    .filter((t): t is string => typeof t === 'string' && t.trim().length > 0)
+    .map(t => t.trim().slice(0, 30))
+    .slice(0, 8)
+
+  const upsertTag = db.prepare(
+    `INSERT INTO tags (name, category) VALUES (?, 'topic')
+     ON CONFLICT(name) DO UPDATE SET category = COALESCE(category, 'topic')
+     RETURNING id`
+  )
+  const linkTag = db.prepare(
+    `INSERT OR IGNORE INTO article_tags (article_id, tag_id, source, confidence) VALUES (?, ?, 'ai', 0.85)`
+  )
+  for (const name of tags) {
+    const row = upsertTag.get(name) as { id: number }
+    linkTag.run(article_id, row.id)
+  }
+
   return NextResponse.json({
     ok: true,
     meta: { summary_ai, key_points, content_type, time_horizon, signal_type, sector, institution },
     factors,
+    tags,
   })
 }

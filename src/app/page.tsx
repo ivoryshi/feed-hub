@@ -57,6 +57,8 @@ const FACTOR_LABELS: Record<string, string> = {
   low_vol: '低波', macro: '宏观', carry: '套利', growth: '成长', other: '其他',
 }
 
+type Tag = { id: number; name: string; category: string; count: number }
+
 const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
   wechat:  { label: '公众号', cls: 'bg-green-50 text-green-600' },
   rss:     { label: 'RSS',    cls: 'bg-blue-50 text-blue-600' },
@@ -124,6 +126,9 @@ export default function Home() {
   const [fetchMsg, setFetchMsg] = useState('')
   const [transcribing, setTranscribing] = useState<Record<number, boolean>>({})
   const [processing, setProcessing] = useState<Record<number, boolean>>({})
+  const [tags, setTags] = useState<Tag[]>([])
+  const [selectedTag, setSelectedTag] = useState<number | null>(null)
+  const [tagsExpanded, setTagsExpanded] = useState(false)
 
   // Editor state
   const [md, setMd] = useState(EDITOR_TEMPLATE)
@@ -136,6 +141,11 @@ export default function Home() {
     setSources(await res.json())
   }, [])
 
+  const loadTags = useCallback(async () => {
+    const res = await fetch('/api/tags')
+    setTags(await res.json())
+  }, [])
+
   const loadArticles = useCallback(async () => {
     if (query) {
       const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=20`)
@@ -145,14 +155,16 @@ export default function Home() {
     } else {
       const params = new URLSearchParams({ page: String(page), limit: '20' })
       if (selectedSource) params.set('source_id', String(selectedSource))
+      if (selectedTag) params.set('tag_id', String(selectedTag))
       const res = await fetch(`/api/articles?${params}`)
       const data = await res.json()
       setArticles(data.articles)
       setTotal(data.total)
     }
-  }, [query, page, selectedSource])
+  }, [query, page, selectedSource, selectedTag])
 
   useEffect(() => { loadSources() }, [loadSources])
+  useEffect(() => { loadTags() }, [loadTags])
   useEffect(() => { loadArticles() }, [loadArticles])
 
   const handleSearch = (e: React.FormEvent) => {
@@ -251,6 +263,7 @@ export default function Home() {
     })
     setProcessing(p => ({ ...p, [articleId]: false }))
     loadArticles()
+    loadTags()
   }
 
   // Editor handlers
@@ -337,29 +350,84 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-4 py-6 w-full">
           {tab === 'articles' && (
             <div className="flex gap-6">
-              <div className="w-44 shrink-0">
-                <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">来源</div>
-                <ul className="space-y-1">
-                  <li>
-                    <button
-                      onClick={() => { setSelectedSource(null); setPage(1) }}
-                      className={`w-full text-left px-3 py-1.5 text-sm rounded-md ${!selectedSource ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'}`}
-                    >
-                      全部
-                    </button>
-                  </li>
-                  {sources.map(s => (
-                    <li key={s.id}>
+              <div className="w-44 shrink-0 space-y-4">
+                {/* Tag filter */}
+                <div>
+                  <button
+                    onClick={() => setTagsExpanded(e => !e)}
+                    className="flex items-center justify-between w-full text-xs font-medium text-gray-400 uppercase tracking-wider mb-2 hover:text-gray-600"
+                  >
+                    <span>标签</span>
+                    <span className="text-gray-300 normal-case tracking-normal font-normal">
+                      {tagsExpanded ? '收起' : tags.length > 0 ? `${tags.length} 个` : ''}
+                    </span>
+                  </button>
+
+                  {tags.length === 0 && (
+                    <p className="text-[11px] text-gray-300 px-1 leading-relaxed">
+                      AI 分析文章后<br />标签将出现在这里
+                    </p>
+                  )}
+
+                  {tags.length > 0 && (
+                    <div className="space-y-0.5">
+                      {selectedTag && (
+                        <button
+                          onClick={() => { setSelectedTag(null); setPage(1) }}
+                          className="w-full text-left px-3 py-1.5 text-xs rounded-md bg-gray-100 font-medium flex items-center justify-between"
+                        >
+                          <span className="truncate">{tags.find(t => t.id === selectedTag)?.name}</span>
+                          <span className="text-gray-400 ml-1 shrink-0">✕</span>
+                        </button>
+                      )}
+                      {(tagsExpanded ? tags : tags.slice(0, selectedTag ? 0 : 5)).map(t => (
+                        t.id === selectedTag ? null :
+                        <button
+                          key={t.id}
+                          onClick={() => { setSelectedTag(t.id); setSelectedSource(null); setPage(1) }}
+                          className="w-full text-left px-3 py-1.5 text-xs rounded-md hover:bg-gray-50 flex items-center justify-between"
+                        >
+                          <span className="truncate text-gray-600">{t.name}</span>
+                          <span className="text-gray-300 text-[10px] ml-1 shrink-0">{t.count}</span>
+                        </button>
+                      ))}
+                      {!tagsExpanded && tags.length > 5 && (
+                        <button
+                          onClick={() => setTagsExpanded(true)}
+                          className="w-full text-left px-3 py-1 text-[11px] text-gray-400 hover:text-gray-600"
+                        >
+                          + 展开全部 {tags.length} 个标签
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Source filter */}
+                <div>
+                  <div className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">来源</div>
+                  <ul className="space-y-0.5">
+                    <li>
                       <button
-                        onClick={() => { setSelectedSource(s.id); setPage(1) }}
-                        className={`w-full text-left px-3 py-1.5 text-sm rounded-md truncate ${selectedSource === s.id ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'}`}
+                        onClick={() => { setSelectedSource(null); setSelectedTag(null); setPage(1) }}
+                        className={`w-full text-left px-3 py-1.5 text-sm rounded-md ${!selectedSource && !selectedTag ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'}`}
                       >
-                        {s.name}
-                        <span className="ml-1 text-gray-400 text-xs">({s.article_count})</span>
+                        全部
                       </button>
                     </li>
-                  ))}
-                </ul>
+                    {sources.map(s => (
+                      <li key={s.id}>
+                        <button
+                          onClick={() => { setSelectedSource(s.id); setSelectedTag(null); setPage(1) }}
+                          className={`w-full text-left px-3 py-1.5 text-sm rounded-md truncate ${selectedSource === s.id ? 'bg-gray-100 font-medium' : 'hover:bg-gray-50'}`}
+                        >
+                          {s.name}
+                          <span className="ml-1 text-gray-400 text-xs">({s.article_count})</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               </div>
 
               <div className="flex-1 min-w-0">
