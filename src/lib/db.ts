@@ -24,7 +24,7 @@ function initSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS sources (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       name      TEXT NOT NULL,
-      type      TEXT NOT NULL CHECK(type IN ('rss','wechat','podcast')),
+      type      TEXT NOT NULL CHECK(type IN ('rss','wechat','podcast','obsidian')),
       url       TEXT NOT NULL UNIQUE,
       enabled   INTEGER NOT NULL DEFAULT 1,
       last_fetched_at TEXT,
@@ -69,6 +69,29 @@ function initSchema(db: Database.Database) {
 
 // 对已有数据库做字段补丁
 function migrate(db: Database.Database) {
+  // 扩展 sources.type 支持 obsidian（SQLite 不能 ALTER CHECK，重建表）
+  const srcCols = (db.prepare(`PRAGMA table_info(sources)`).all() as { name: string }[]).map(c => c.name)
+  const needRebuild = !srcCols.includes('_type_migrated')
+  if (needRebuild) {
+    const typeCheck = (db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sources'`).get() as { sql: string } | undefined)?.sql || ''
+    if (typeCheck.includes("'rss','wechat'") && !typeCheck.includes('obsidian')) {
+      db.exec(`
+        ALTER TABLE sources RENAME TO sources_old;
+        CREATE TABLE sources (
+          id        INTEGER PRIMARY KEY AUTOINCREMENT,
+          name      TEXT NOT NULL,
+          type      TEXT NOT NULL CHECK(type IN ('rss','wechat','podcast','obsidian')),
+          url       TEXT NOT NULL UNIQUE,
+          enabled   INTEGER NOT NULL DEFAULT 1,
+          last_fetched_at TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO sources SELECT * FROM sources_old;
+        DROP TABLE sources_old;
+      `)
+    }
+  }
+
   const cols = (db.prepare(`PRAGMA table_info(articles)`).all() as { name: string }[]).map(c => c.name)
   if (!cols.includes('audio_url')) {
     db.exec(`ALTER TABLE articles ADD COLUMN audio_url TEXT`)

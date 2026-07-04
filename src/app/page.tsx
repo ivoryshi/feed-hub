@@ -60,9 +60,10 @@ const FACTOR_LABELS: Record<string, string> = {
 type Tag = { id: number; name: string; category: string; count: number }
 
 const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
-  wechat:  { label: '公众号', cls: 'bg-green-50 text-green-600' },
-  rss:     { label: 'RSS',    cls: 'bg-blue-50 text-blue-600' },
-  podcast: { label: '播客',   cls: 'bg-purple-50 text-purple-600' },
+  wechat:   { label: '公众号', cls: 'bg-green-50 text-green-600' },
+  rss:      { label: 'RSS',    cls: 'bg-blue-50 text-blue-600' },
+  podcast:  { label: '播客',   cls: 'bg-purple-50 text-purple-600' },
+  obsidian: { label: 'Ob',     cls: 'bg-violet-50 text-violet-600' },
 }
 
 const EDITOR_TEMPLATE = `# 标题：写下你的文章标题
