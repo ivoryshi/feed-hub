@@ -19,8 +19,8 @@ export async function POST(req: NextRequest) {
   if (!name || !type || !url) {
     return NextResponse.json({ error: '缺少必填字段' }, { status: 400 })
   }
-  if (!['rss', 'wechat', 'podcast'].includes(type)) {
-    return NextResponse.json({ error: 'type 只能是 rss、wechat 或 podcast' }, { status: 400 })
+  if (!['rss', 'wechat', 'podcast', 'obsidian', 'twitter'].includes(type)) {
+    return NextResponse.json({ error: 'type 只能是 rss、wechat、podcast、obsidian 或 twitter' }, { status: 400 })
   }
 
   const db = getDb()
