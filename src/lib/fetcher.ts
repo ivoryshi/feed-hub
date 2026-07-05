@@ -52,10 +52,15 @@ export async function fetchSource(sourceId: number) {
       try { return new Date(rawDate).toISOString() } catch { return rawDate }
     })() : null
 
+    // Twitter/X 推文无标题，用内容前 60 字兜底
+    const rawTitle = item.title?.trim()
+    const contentText = item.contentSnippet || item.summary || item['content:encoded'] || ''
+    const title = rawTitle || contentText.replace(/<[^>]+>/g, '').slice(0, 60) || null
+
     return {
       source_id: source.id,
       guid: item.guid || item.link || item.title || String(Date.now()),
-      title: item.title || '',
+      title,
       url: item.link || null,
       summary: item.contentSnippet || item.summary || null,
       content: item['content:encoded'] || item.content || null,

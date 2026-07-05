@@ -64,6 +64,7 @@ const SOURCE_LABELS: Record<string, { label: string; cls: string }> = {
   rss:      { label: 'RSS',    cls: 'bg-blue-50 text-blue-600' },
   podcast:  { label: '播客',   cls: 'bg-purple-50 text-purple-600' },
   obsidian: { label: 'Ob',     cls: 'bg-violet-50 text-violet-600' },
+  twitter:  { label: 'X',      cls: 'bg-gray-900 text-white' },
 }
 
 const EDITOR_TEMPLATE = `# 标题：写下你的文章标题
@@ -463,20 +464,29 @@ export default function Home() {
                       <div key={a.id} className="bg-white border border-gray-100 rounded-xl p-4 hover:border-gray-200 transition-colors">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            {a.url ? (
-                              <a href={a.url} target="_blank" rel="noopener noreferrer"
-                                className="font-medium text-sm hover:underline leading-snug block"
-                                dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title }}
-                              />
+                            {a.source_type === 'twitter' ? (
+                              // Twitter 推文：无标题，直接展示内容
+                              <p className="text-sm leading-relaxed text-gray-800 whitespace-pre-wrap">
+                                {a.summary || a.content?.slice(0, 280) || ''}
+                              </p>
                             ) : (
-                              <p className="font-medium text-sm leading-snug"
-                                dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title }}
-                              />
-                            )}
-                            {displaySummary && (
-                              <p className={`text-xs mt-1.5 line-clamp-2 ${a.summary_ai ? 'text-gray-600' : 'text-gray-400'}`}
-                                dangerouslySetInnerHTML={{ __html: a.summary_snippet || displaySummary }}
-                              />
+                              <>
+                                {a.url ? (
+                                  <a href={a.url} target="_blank" rel="noopener noreferrer"
+                                    className="font-medium text-sm hover:underline leading-snug block"
+                                    dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title || '' }}
+                                  />
+                                ) : (
+                                  <p className="font-medium text-sm leading-snug"
+                                    dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title || '' }}
+                                  />
+                                )}
+                                {displaySummary && (
+                                  <p className={`text-xs mt-1.5 line-clamp-2 ${a.summary_ai ? 'text-gray-600' : 'text-gray-400'}`}
+                                    dangerouslySetInnerHTML={{ __html: a.summary_snippet || displaySummary }}
+                                  />
+                                )}
+                              </>
                             )}
                             {factors.length > 0 && (
                               <div className="flex flex-wrap gap-1 mt-2">

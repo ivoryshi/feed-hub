@@ -24,7 +24,7 @@ function initSchema(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS sources (
       id        INTEGER PRIMARY KEY AUTOINCREMENT,
       name      TEXT NOT NULL,
-      type      TEXT NOT NULL CHECK(type IN ('rss','wechat','podcast','obsidian')),
+      type      TEXT NOT NULL CHECK(type IN ('rss','wechat','podcast','obsidian','twitter')),
       url       TEXT NOT NULL UNIQUE,
       enabled   INTEGER NOT NULL DEFAULT 1,
       last_fetched_at TEXT,
@@ -74,13 +74,13 @@ function migrate(db: Database.Database) {
   const needRebuild = !srcCols.includes('_type_migrated')
   if (needRebuild) {
     const typeCheck = (db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='sources'`).get() as { sql: string } | undefined)?.sql || ''
-    if (typeCheck.includes("'rss','wechat'") && !typeCheck.includes('obsidian')) {
+    if (!typeCheck.includes('twitter')) {
       db.exec(`
         ALTER TABLE sources RENAME TO sources_old;
         CREATE TABLE sources (
           id        INTEGER PRIMARY KEY AUTOINCREMENT,
           name      TEXT NOT NULL,
-          type      TEXT NOT NULL CHECK(type IN ('rss','wechat','podcast','obsidian')),
+          type      TEXT NOT NULL CHECK(type IN ('rss','wechat','podcast','obsidian','twitter')),
           url       TEXT NOT NULL UNIQUE,
           enabled   INTEGER NOT NULL DEFAULT 1,
           last_fetched_at TEXT,
@@ -90,6 +90,34 @@ function migrate(db: Database.Database) {
         DROP TABLE sources_old;
       `)
     }
+  }
+
+  // articles.title NOT NULL → NULL（支持 Twitter 无标题推文）
+  // SQLite 不能 ALTER COLUMN，检查当前定义是否需要重建
+  const articleSql = (db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='articles'`).get() as { sql: string } | undefined)?.sql || ''
+  if (articleSql.includes('title                TEXT NOT NULL')) {
+    db.pragma('foreign_keys = OFF')
+    db.exec(`
+      ALTER TABLE articles RENAME TO articles_old;
+      CREATE TABLE articles (
+        id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_id            INTEGER NOT NULL REFERENCES sources(id),
+        guid                 TEXT NOT NULL,
+        title                TEXT,
+        url                  TEXT,
+        summary              TEXT,
+        content              TEXT,
+        author               TEXT,
+        published_at         TEXT,
+        fetched_at           TEXT NOT NULL DEFAULT (datetime('now')),
+        audio_url            TEXT,
+        transcription_status TEXT NOT NULL DEFAULT 'none',
+        UNIQUE(source_id, guid)
+      );
+      INSERT INTO articles SELECT * FROM articles_old;
+      DROP TABLE articles_old;
+    `)
+    db.pragma('foreign_keys = ON')
   }
 
   const cols = (db.prepare(`PRAGMA table_info(articles)`).all() as { name: string }[]).map(c => c.name)
