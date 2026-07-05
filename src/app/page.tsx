@@ -589,6 +589,7 @@ export default function Home() {
                         <option value="rss">RSS</option>
                         <option value="wechat">公众号</option>
                         <option value="podcast">播客</option>
+                        <option value="twitter">Twitter/X</option>
                       </select>
                     </div>
                   </div>
