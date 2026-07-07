@@ -62,14 +62,29 @@ rss / wechat / podcast / obsidian / twitter
 ```
 
 ### 定时任务
-- **每天 10:00**：GET `/api/fetch` → 抓取所有 RSS/WeChat/Podcast + 扫描 Obsidian Clippings
-- launchd plist：`~/Library/LaunchAgents/com.feedhub.daily-fetch.plist`
-- 日志：`/tmp/feedhub-fetch.log`
+- **每天 08:00（ECS 服务器时间）**：GET `/api/fetch` → 抓取所有 RSS/WeChat/Podcast + Obsidian 导入
+- ECS crontab：`0 8 * * * curl -s http://localhost:3000/api/fetch >> /var/log/feedhub-cron.log 2>&1`
 
 ### Obsidian 导入规则
-- 路径：`~/Desktop/My Vault/Clippings/`
+- 优先：Google Drive（需配置 `GDRIVE_CLIPPINGS_FOLDER_ID` + `GOOGLE_SERVICE_ACCOUNT_JSON`）
+- 降级：本地路径 `~/Desktop/My Vault/Clippings/`
 - 触发条件：frontmatter `tags` 含 `clippings`
 - 去重 key：文件名（guid）
+
+### 配置管理
+- 配置优先级：DB `settings` 表 > `.env.local` > 代码默认值
+- 前端配置面板支持的 key：`AI_VENDOR` / `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` / `DASHSCOPE_API_KEY` / `GDRIVE_CLIPPINGS_FOLDER_ID` / `GOOGLE_SERVICE_ACCOUNT_JSON`
+- `getSetting(key, fallback)` 统一读取入口，在 `src/lib/db.ts`
+
+### 草稿系统
+- DB 表：`drafts`（id / title / content / created_at / updated_at）
+- API：`/api/drafts` GET/POST，`/api/drafts/[id]` GET/PUT/DELETE
+- 前端：写文章 tab，左侧草稿列表，1s 自动保存
+
+### 转写系统（阿里云 DashScope Paraformer-v2）
+- 异步流程：提交任务 → 存 `transcription_task_id` → 前端轮询 `/api/transcribe/status` → 完成后存 `transcription`
+- 免费额度：100小时/月
+- 需配置：`DASHSCOPE_API_KEY`
 
 ### Twitter/X 接入方式
 - 通过 RSSHub 公共实例转 RSS
@@ -95,3 +110,12 @@ rss / wechat / podcast / obsidian / twitter
 | 2026-07-05 | published_at 统一转 ISO 8601，fetch 上限改 100 |
 | 2026-07-05 | 新增 obsidian source type，导入 85 篇存量 clippings |
 | 2026-07-05 | 新增 twitter source type，articles.title 改为可空 |
+| 2026-07-07 | DashScope Paraformer-v2 转写 + 前端文稿展示 |
+| 2026-07-07 | 草稿多篇管理（drafts 表 + API + 编辑器左侧栏） |
+| 2026-07-07 | 前端模型配置面板（settings 表，DB 优先于 env） |
+| 2026-07-07 | Articles API 优化：非 podcast 不返回 content（444KB→31KB） |
+| 2026-07-07 | AI 分析结果展开/收起 UI，summary 默认 5 行 |
+| 2026-07-07 | 部署至阿里云 ECS 香港（47.239.24.2），域名 feedhubs.org，Cloudflare CDN |
+| 2026-07-07 | WeWeRSS Docker 部署 + 数据迁移，公众号入库 tab（rss.feedhubs.org） |
+| 2026-07-07 | Google Drive importer 代码完成（gdrive-importer.ts），待配置 Service Account |
+| 2026-07-07 | next.config.js 修正为 Next.js 14 正确语法（experimental.serverComponentsExternalPackages） |

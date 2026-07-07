@@ -13,6 +13,7 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@uiw/react-md-editor": "^4.1.1",
     "better-sqlite3": "^11.10.0",
+    "googleapis": "^173.0.0",
     "next": "14.2.29",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

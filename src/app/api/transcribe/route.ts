@@ -1,82 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDb } from '@/lib/db'
+import { getDb, getSetting } from '@/lib/db'
 
-const API_KEY = process.env.TRANSCRIPTION_API_KEY
-const BASE_URL = process.env.TRANSCRIPTION_BASE_URL || 'https://api.moonshot.cn/v1'
-const MODEL = process.env.TRANSCRIPTION_MODEL || 'moonshot-v1-8k'
+const DASHSCOPE_URL = 'https://dashscope.aliyuncs.com/api/v1/services/audio/asr/transcription'
 
 export async function POST(req: NextRequest) {
   const { article_id } = await req.json()
   if (!article_id) return NextResponse.json({ error: '缺少 article_id' }, { status: 400 })
-  if (!API_KEY) return NextResponse.json({ error: '未配置 TRANSCRIPTION_API_KEY' }, { status: 500 })
+  const API_KEY = getSetting('DASHSCOPE_API_KEY')
+  if (!API_KEY) return NextResponse.json({ error: '未配置 DASHSCOPE_API_KEY' }, { status: 500 })
 
   const db = getDb()
-  const article = db.prepare('SELECT * FROM articles WHERE id = ?').get(article_id) as {
+  const article = db.prepare('SELECT id, title, audio_url, transcription_status FROM articles WHERE id = ?').get(article_id) as {
     id: number; title: string; audio_url: string | null; transcription_status: string
   } | undefined
 
   if (!article) return NextResponse.json({ error: '文章不存在' }, { status: 404 })
   if (!article.audio_url) return NextResponse.json({ error: '该文章无音频' }, { status: 400 })
-  if (article.transcription_status === 'processing') {
-    return NextResponse.json({ error: '正在转写中' }, { status: 409 })
+  if (article.transcription_status === 'processing') return NextResponse.json({ error: '正在转写中' }, { status: 409 })
+
+  // 提交 DashScope 异步转写任务
+  const res = await fetch(DASHSCOPE_URL, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${API_KEY}`,
+      'Content-Type': 'application/json',
+      'X-DashScope-Async': 'enable',
+    },
+    body: JSON.stringify({
+      model: 'paraformer-v2',
+      input: { file_urls: [article.audio_url] },
+      parameters: { language_hints: ['zh'] },
+    }),
+  })
+
+  if (!res.ok) {
+    const err = await res.text()
+    return NextResponse.json({ error: `DashScope 提交失败: ${res.status} ${err}` }, { status: 502 })
   }
 
-  db.prepare(`UPDATE articles SET transcription_status = 'processing' WHERE id = ?`).run(article_id)
+  const data = await res.json() as { output: { task_id: string; task_status: string } }
+  const taskId = data.output?.task_id
+  if (!taskId) return NextResponse.json({ error: '未获取到 task_id' }, { status: 502 })
 
-  // 异步执行，立即返回
-  transcribeAsync(article_id, article.audio_url, article.title).catch(console.error)
+  db.prepare(`UPDATE articles SET transcription_status = 'processing', transcription_task_id = ? WHERE id = ?`).run(taskId, article_id)
 
-  return NextResponse.json({ ok: true, status: 'processing' })
-}
-
-async function transcribeAsync(articleId: number, audioUrl: string, title: string) {
-  const db = getDb()
-  try {
-    // 下载音频
-    const audioRes = await fetch(audioUrl)
-    if (!audioRes.ok) throw new Error(`下载音频失败: ${audioRes.status}`)
-    const audioBuffer = await audioRes.arrayBuffer()
-
-    // 上传到模型服务
-    const formData = new FormData()
-    const ext = audioUrl.split('.').pop()?.split('?')[0] || 'mp3'
-    formData.append('file', new Blob([audioBuffer], { type: 'audio/mpeg' }), `audio.${ext}`)
-    formData.append('model', MODEL)
-    formData.append('language', 'zh')
-    formData.append('prompt', `这是一个播客节目音频，标题：${title}`)
-
-    const transcribeRes = await fetch(`${BASE_URL}/audio/transcriptions`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${API_KEY}` },
-      body: formData,
-    })
-
-    if (!transcribeRes.ok) {
-      const err = await transcribeRes.text()
-      throw new Error(`转写 API 错误: ${transcribeRes.status} ${err}`)
-    }
-
-    const result = await transcribeRes.json() as { text: string }
-    const transcript = result.text
-
-    db.prepare(`
-      UPDATE articles SET content = ?, transcription_status = 'done' WHERE id = ?
-    `).run(transcript, articleId)
-
-    // 更新 FTS 索引
-    db.prepare(`
-      INSERT INTO articles_fts(articles_fts, rowid, title, summary, content)
-      VALUES ('delete', ?, '', '', '')
-    `).run(articleId)
-    const updated = db.prepare('SELECT title, summary, content FROM articles WHERE id = ?').get(articleId) as {
-      title: string; summary: string | null; content: string | null
-    }
-    db.prepare(`
-      INSERT INTO articles_fts(rowid, title, summary, content) VALUES (?, ?, ?, ?)
-    `).run(articleId, updated.title, updated.summary || '', updated.content || '')
-
-  } catch (e) {
-    db.prepare(`UPDATE articles SET transcription_status = 'error' WHERE id = ?`).run(articleId)
-    console.error('转写失败:', e)
-  }
+  return NextResponse.json({ ok: true, task_id: taskId })
 }

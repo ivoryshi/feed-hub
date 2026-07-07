@@ -19,6 +19,8 @@ type Article = {
   title: string
   url: string | null
   summary: string | null
+  content: string | null
+  transcription: string | null
   author: string | null
   published_at: string | null
   source_name: string
@@ -112,7 +114,7 @@ const SNIPPETS = [
 ]
 
 export default function Home() {
-  const [tab, setTab] = useState<'articles' | 'sources' | 'editor'>('articles')
+  const [tab, setTab] = useState<'articles' | 'sources' | 'editor' | 'wechat'>('articles')
 
   // Feed state
   const [sources, setSources] = useState<Source[]>([])
@@ -131,12 +133,27 @@ export default function Home() {
   const [tags, setTags] = useState<Tag[]>([])
   const [selectedTag, setSelectedTag] = useState<number | null>(null)
   const [tagsExpanded, setTagsExpanded] = useState(false)
+  const [configOpen, setConfigOpen] = useState(false)
+  const [configValues, setConfigValues] = useState<Record<string, string>>({})
+  const [configSaving, setConfigSaving] = useState(false)
+  const [configSaved, setConfigSaved] = useState(false)
+
+  // Transcription expand state
+  const [expandedTranscription, setExpandedTranscription] = useState<Record<number, boolean>>({})
+  const [expandedSummary, setExpandedSummary] = useState<Record<number, boolean>>({})
 
   // Editor state
   const [md, setMd] = useState(EDITOR_TEMPLATE)
   const [copied, setCopied] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Draft state
+  type Draft = { id: number; title: string; preview: string; updated_at: string }
+  const [drafts, setDrafts] = useState<Draft[]>([])
+  const [currentDraftId, setCurrentDraftId] = useState<number | null>(null)
+  const [draftTitle, setDraftTitle] = useState('无标题')
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadSources = useCallback(async () => {
     const res = await fetch('/api/sources')
@@ -238,6 +255,93 @@ export default function Home() {
     loadSources()
   }
 
+  const loadConfig = useCallback(async () => {
+    const res = await fetch('/api/settings')
+    setConfigValues(await res.json())
+  }, [])
+
+  const handleSaveConfig = async () => {
+    setConfigSaving(true)
+    await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(configValues),
+    })
+    setConfigSaving(false)
+    setConfigSaved(true)
+    setTimeout(() => setConfigSaved(false), 2000)
+    loadConfig()
+  }
+
+  useEffect(() => { if (configOpen) loadConfig() }, [configOpen, loadConfig])
+
+  const loadDrafts = useCallback(async () => {
+    const res = await fetch('/api/drafts')
+    setDrafts(await res.json())
+  }, [])
+
+  useEffect(() => { if (tab === 'editor') loadDrafts() }, [tab, loadDrafts])
+
+  const autoSave = useCallback((title: string, content: string, draftId: number | null) => {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(async () => {
+      if (draftId) {
+        await fetch(`/api/drafts/${draftId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content }),
+        })
+      } else {
+        const res = await fetch('/api/drafts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, content }),
+        })
+        const draft = await res.json()
+        setCurrentDraftId(draft.id)
+      }
+      loadDrafts()
+    }, 1000)
+  }, [loadDrafts])
+
+  const handleNewDraft = async () => {
+    const res = await fetch('/api/drafts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: '无标题', content: EDITOR_TEMPLATE }),
+    })
+    const draft = await res.json()
+    setCurrentDraftId(draft.id)
+    setDraftTitle(draft.title)
+    setMd(draft.content)
+    loadDrafts()
+  }
+
+  const handleLoadDraft = async (id: number) => {
+    const res = await fetch(`/api/drafts/${id}`)
+    const draft = await res.json()
+    setCurrentDraftId(draft.id)
+    setDraftTitle(draft.title)
+    setMd(draft.content)
+  }
+
+  const handleDeleteDraft = async (id: number) => {
+    if (!confirm('删除该草稿？')) return
+    await fetch(`/api/drafts/${id}`, { method: 'DELETE' })
+    if (currentDraftId === id) handleNewDraft()
+    loadDrafts()
+  }
+
+  const handleMdChange = (val: string) => {
+    setMd(val)
+    autoSave(draftTitle, val, currentDraftId)
+  }
+
+  const handleTitleChange = (val: string) => {
+    setDraftTitle(val)
+    autoSave(val, md, currentDraftId)
+  }
+
   const handleTranscribe = async (articleId: number) => {
     setTranscribing(t => ({ ...t, [articleId]: true }))
     await fetch('/api/transcribe', {
@@ -258,14 +362,21 @@ export default function Home() {
 
   const handleProcess = async (articleId: number) => {
     setProcessing(p => ({ ...p, [articleId]: true }))
-    await fetch('/api/process', {
+    const res = await fetch('/api/process', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ article_id: articleId }),
     })
     setProcessing(p => ({ ...p, [articleId]: false }))
-    loadArticles()
-    loadTags()
+    if (res.ok) {
+      // 直接拉这篇文章的最新字段，就地更新 state，不依赖整页刷新
+      const updated = await fetch(`/api/articles/${articleId}`)
+      if (updated.ok) {
+        const fresh: Article = await updated.json()
+        setArticles(prev => prev.map(a => a.id === articleId ? { ...a, ...fresh } : a))
+      }
+      loadTags()
+    }
   }
 
   // Editor handlers
@@ -332,6 +443,7 @@ export default function Home() {
           {([
             ['articles', `文章 (${total})`],
             ['sources', `订阅源 (${sources.length})`],
+            ['wechat', '公众号入库'],
             ['editor', '写文章'],
           ] as const).map(([t, label]) => (
             <button
@@ -348,7 +460,7 @@ export default function Home() {
       </div>
 
       {/* Tab content */}
-      {tab !== 'editor' && (
+      {tab !== 'editor' && tab !== 'wechat' && (
         <div className="max-w-5xl mx-auto px-4 py-6 w-full">
           {tab === 'articles' && (
             <div className="flex gap-6">
@@ -430,6 +542,81 @@ export default function Home() {
                     ))}
                   </ul>
                 </div>
+
+                {/* 模型配置 */}
+                <div className="mt-4 border-t border-gray-100 pt-4">
+                  <button
+                    onClick={() => setConfigOpen(o => !o)}
+                    className="flex items-center justify-between w-full text-xs font-medium text-gray-400 uppercase tracking-wider hover:text-gray-600"
+                  >
+                    <span>模型配置</span>
+                    <span>{configOpen ? '▲' : '▼'}</span>
+                  </button>
+                  {configOpen && (
+                    <div className="mt-3 space-y-4">
+                      {/* AI 分析模型 */}
+                      <div className="space-y-2">
+                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">AI 分析</p>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block mb-0.5">厂商</label>
+                          <select
+                            value={configValues['AI_VENDOR'] || ''}
+                            onChange={e => {
+                              const vendors: Record<string, { url: string; model: string }> = {
+                                moonshot: { url: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-32k' },
+                                openai:   { url: 'https://api.openai.com/v1',  model: 'gpt-4o-mini' },
+                                anthropic: { url: 'https://api.anthropic.com/v1', model: 'claude-haiku-4-5-20251001' },
+                                deepseek:  { url: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+                                custom:    { url: '', model: '' },
+                              }
+                              const v = vendors[e.target.value]
+                              setConfigValues(prev => ({
+                                ...prev,
+                                AI_VENDOR: e.target.value,
+                                ...(v && e.target.value !== 'custom' ? { AI_BASE_URL: v.url, AI_MODEL: v.model } : {}),
+                              }))
+                            }}
+                            className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-md outline-none focus:border-gray-400 bg-white"
+                          >
+                            <option value="">选择厂商…</option>
+                            <option value="moonshot">Moonshot (Kimi)</option>
+                            <option value="openai">OpenAI</option>
+                            <option value="anthropic">Anthropic (Claude)</option>
+                            <option value="deepseek">DeepSeek</option>
+                            <option value="custom">自定义</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block mb-0.5">模型</label>
+                          <input type="text" value={configValues['AI_MODEL'] || ''} onChange={e => setConfigValues(v => ({ ...v, AI_MODEL: e.target.value }))} placeholder="moonshot-v1-8k" className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-md outline-none focus:border-gray-400 font-mono" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block mb-0.5">API Key</label>
+                          <input type="text" value={configValues['AI_API_KEY'] || ''} onChange={e => setConfigValues(v => ({ ...v, AI_API_KEY: e.target.value }))} placeholder="sk-..." className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-md outline-none focus:border-gray-400 font-mono" />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block mb-0.5">Base URL</label>
+                          <input type="text" value={configValues['AI_BASE_URL'] || ''} onChange={e => setConfigValues(v => ({ ...v, AI_BASE_URL: e.target.value }))} placeholder="https://api.moonshot.cn/v1" className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-md outline-none focus:border-gray-400 font-mono" />
+                        </div>
+                      </div>
+                      {/* 语音转写 */}
+                      <div className="space-y-2 pt-2 border-t border-gray-100">
+                        <p className="text-[10px] font-medium text-gray-500 uppercase tracking-wider">语音转写 · 阿里云 DashScope</p>
+                        <div>
+                          <label className="text-[10px] text-gray-400 block mb-0.5">API Key</label>
+                          <input type="text" value={configValues['DASHSCOPE_API_KEY'] || ''} onChange={e => setConfigValues(v => ({ ...v, DASHSCOPE_API_KEY: e.target.value }))} placeholder="sk-..." className="w-full text-xs px-2 py-1.5 border border-gray-200 rounded-md outline-none focus:border-gray-400 font-mono" />
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleSaveConfig}
+                        disabled={configSaving}
+                        className="w-full text-xs py-1.5 bg-black text-white rounded-md hover:bg-gray-800 disabled:opacity-50"
+                      >
+                        {configSaved ? '已保存 ✓' : configSaving ? '保存中…' : '保存'}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex-1 min-w-0">
@@ -481,10 +668,28 @@ export default function Home() {
                                     dangerouslySetInnerHTML={{ __html: a.title_snippet || a.title || '' }}
                                   />
                                 )}
-                                {displaySummary && (
-                                  <p className={`text-xs mt-1.5 line-clamp-2 ${a.summary_ai ? 'text-gray-600' : 'text-gray-400'}`}
-                                    dangerouslySetInnerHTML={{ __html: a.summary_snippet || displaySummary }}
-                                  />
+                                {isPodcast ? (
+                                  (a.content || a.summary) && (
+                                    <div className="text-xs mt-1.5 text-gray-500 prose prose-xs max-w-none leading-relaxed"
+                                      dangerouslySetInnerHTML={{ __html: a.content || a.summary || '' }}
+                                    />
+                                  )
+                                ) : (
+                                  displaySummary && (
+                                    <div className="mt-1.5">
+                                      <p className={`text-xs ${expandedSummary[a.id] ? '' : 'line-clamp-5'} ${a.summary_ai ? 'text-gray-600' : 'text-gray-400'}`}
+                                        dangerouslySetInnerHTML={{ __html: a.summary_snippet || displaySummary }}
+                                      />
+                                      {a.summary_ai && a.summary_ai.length > 120 && (
+                                        <button
+                                          onClick={() => setExpandedSummary(s => ({ ...s, [a.id]: !s[a.id] }))}
+                                          className="text-[10px] text-gray-400 hover:text-gray-600 mt-0.5"
+                                        >
+                                          {expandedSummary[a.id] ? '收起' : '展开'}
+                                        </button>
+                                      )}
+                                    </div>
+                                  )
                                 )}
                               </>
                             )}
@@ -514,7 +719,12 @@ export default function Home() {
                               </button>
                             )}
                             {isPodcast && a.transcription_status === 'done' && (
-                              <span className="text-xs px-2.5 py-1.5 bg-purple-50 text-purple-400 rounded-lg">✓ 已转写</span>
+                              <button
+                                onClick={() => setExpandedTranscription(s => ({ ...s, [a.id]: !s[a.id] }))}
+                                className="text-xs px-2.5 py-1.5 bg-purple-50 text-purple-500 rounded-lg hover:bg-purple-100"
+                              >
+                                {expandedTranscription[a.id] ? '收起文稿' : '查看文稿'}
+                              </button>
                             )}
                             {!a.processed_at ? (
                               <button
@@ -545,6 +755,12 @@ export default function Home() {
                           {a.author && <span>{a.author}</span>}
                           {a.published_at && <span>{a.published_at.slice(0, 10)}</span>}
                         </div>
+                        {expandedTranscription[a.id] && a.transcription && (
+                          <div className="mt-3 pt-3 border-t border-gray-100">
+                            <p className="text-[11px] text-gray-400 mb-1.5 font-medium">文字稿</p>
+                            <p className="text-xs text-gray-600 leading-relaxed whitespace-pre-wrap">{a.transcription}</p>
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -646,44 +862,96 @@ export default function Home() {
         </div>
       )}
 
+      {/* WeWeRSS tab — full height iframe */}
+      {tab === 'wechat' && (
+        <div className="flex flex-1 overflow-hidden">
+          <iframe
+            src="https://rss.feedhubs.org"
+            className="flex-1 border-0"
+            allow="clipboard-write"
+          />
+        </div>
+      )}
+
       {/* Editor tab — full height */}
       {tab === 'editor' && (
-        <div className="flex flex-col flex-1 overflow-hidden">
-          {/* Editor toolbar */}
-          <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-100 shrink-0">
-            {SNIPPETS.map(s => (
-              <button key={s.label} onClick={() => insertSnippet(s.text)}
-                className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 whitespace-nowrap">
-                {s.label}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Draft sidebar */}
+          <div className="w-48 shrink-0 border-r border-gray-100 bg-gray-50 flex flex-col overflow-hidden">
+            <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100">
+              <span className="text-xs font-medium text-gray-500">草稿</span>
+              <button onClick={handleNewDraft}
+                className="text-xs text-gray-400 hover:text-gray-700 px-1.5 py-0.5 rounded hover:bg-gray-200">
+                + 新建
               </button>
-            ))}
-            <div className="flex-1" />
-            <button onClick={() => setMd(EDITOR_TEMPLATE)}
-              className="text-xs px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600">
-              新建
-            </button>
-            <button onClick={handleCopy}
-              className="text-xs px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-800">
-              {copied ? '已复制 ✓' : '复制富文本'}
-            </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {drafts.length === 0 && (
+                <p className="text-xs text-gray-400 px-3 py-4 text-center">暂无草稿</p>
+              )}
+              {drafts.map(d => (
+                <div key={d.id}
+                  className={`group px-3 py-2.5 cursor-pointer border-b border-gray-100 hover:bg-white ${currentDraftId === d.id ? 'bg-white border-l-2 border-l-black' : ''}`}
+                  onClick={() => handleLoadDraft(d.id)}
+                >
+                  <p className="text-xs font-medium text-gray-700 truncate">{d.title}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5 truncate">{d.preview?.slice(0, 40) || '空'}</p>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-[10px] text-gray-300">{d.updated_at?.slice(5, 16)}</span>
+                    <button onClick={e => { e.stopPropagation(); handleDeleteDraft(d.id) }}
+                      className="text-[10px] text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100">
+                      删除
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Editor + Preview */}
-          <div className="flex flex-1 overflow-hidden">
-            <div className="w-1/2 flex flex-col border-r border-gray-200">
-              <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs text-gray-400">Markdown</div>
-              <textarea
-                ref={textareaRef}
-                value={md}
-                onChange={e => setMd(e.target.value)}
-                className="flex-1 p-5 text-sm font-mono leading-relaxed resize-none outline-none bg-white text-gray-800"
-                spellCheck={false}
+          {/* Main editor area */}
+          <div className="flex flex-col flex-1 overflow-hidden">
+            {/* Toolbar */}
+            <div className="flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-100 shrink-0">
+              <input
+                value={draftTitle}
+                onChange={e => handleTitleChange(e.target.value)}
+                placeholder="草稿标题"
+                className="text-sm font-medium outline-none text-gray-800 placeholder-gray-300 w-40"
               />
+              <div className="w-px h-4 bg-gray-200" />
+              {SNIPPETS.map(s => (
+                <button key={s.label} onClick={() => insertSnippet(s.text)}
+                  className="text-xs px-2.5 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-600 whitespace-nowrap">
+                  {s.label}
+                </button>
+              ))}
+              <div className="flex-1" />
+              <span className="text-[10px] text-gray-300">
+                {currentDraftId ? `草稿 #${currentDraftId}` : '未保存'}
+              </span>
+              <button onClick={handleCopy}
+                className="text-xs px-3 py-1.5 bg-black text-white rounded-lg hover:bg-gray-800">
+                {copied ? '已复制 ✓' : '复制富文本'}
+              </button>
             </div>
-            <div className="w-1/2 overflow-y-auto bg-white">
-              <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs text-gray-400 sticky top-0">预览</div>
-              <div ref={previewRef} className="px-10 py-8 max-w-2xl mx-auto article-preview">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>
+
+            {/* Editor + Preview */}
+            <div className="flex flex-1 overflow-hidden">
+              <div className="w-1/2 flex flex-col border-r border-gray-200">
+                <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs text-gray-400">Markdown</div>
+                <textarea
+                  ref={textareaRef}
+                  value={md}
+                  onChange={e => handleMdChange(e.target.value)}
+                  className="flex-1 p-5 text-sm font-mono leading-relaxed resize-none outline-none bg-white text-gray-800"
+                  spellCheck={false}
+                />
+              </div>
+              <div className="w-1/2 overflow-y-auto bg-white">
+                <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs text-gray-400 sticky top-0">预览</div>
+                <div ref={previewRef} className="px-10 py-8 max-w-2xl mx-auto article-preview">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{md}</ReactMarkdown>
+                </div>
               </div>
             </div>
           </div>

@@ -26,7 +26,9 @@ export async function GET(req: NextRequest) {
   const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
 
   const articles = db.prepare(`
-    SELECT a.id, a.title, a.url, a.summary, a.author, a.published_at, a.fetched_at,
+    SELECT a.id, a.title, a.url, a.summary,
+           CASE WHEN s.type = 'podcast' THEN a.content ELSE NULL END as content,
+           a.transcription, a.author, a.published_at, a.fetched_at,
            a.audio_url, a.transcription_status,
            s.name as source_name, s.type as source_type,
            m.summary_ai, m.content_type, m.time_horizon, m.signal_type,

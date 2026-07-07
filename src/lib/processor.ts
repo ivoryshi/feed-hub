@@ -1,4 +1,4 @@
-import { getDb } from './db'
+import { getDb, getSetting } from './db'
 
 const CONTENT_TYPES = ['news', 'analysis', 'education', 'opinion', 'data_report', 'strategy_note']
 const TIME_HORIZONS = ['short', 'medium', 'long', 'timeless']
@@ -7,7 +7,7 @@ const FACTOR_NAMES = ['value', 'momentum', 'quality', 'size', 'low_vol', 'macro'
 const FACTOR_DIRECTIONS = ['positive', 'negative', 'neutral']
 
 function buildPrompt(title: string, content: string): string {
-  const text = content.slice(0, 3000)
+  const text = content.slice(0, 12000)
   return `你是一位专业的投资研究分析师。请分析以下文章并以 JSON 格式返回结构化信息。
 
 文章标题：${title}
@@ -17,7 +17,7 @@ ${text}
 
 请严格返回如下 JSON 格式，不要有任何其他文字：
 {
-  "summary_ai": "用2-3句话概括文章核心观点",
+  "summary_ai": "用4-6句话完整概括文章的核心观点、主要论据和结论",
   "key_points": ["要点1", "要点2", "要点3"],
   "content_type": "其中之一：news/analysis/education/opinion/data_report/strategy_note",
   "time_horizon": "其中之一：short/medium/long/timeless（short<1个月，medium 1-12个月，long>1年，timeless永恒）",
@@ -54,9 +54,9 @@ export async function processArticle(articleId: number): Promise<ProcessResult> 
   const text = article.content || article.summary || ''
   if (!text && !article.title) return { article_id: articleId, ok: false, error: 'no content' }
 
-  const apiKey = process.env.AI_API_KEY
-  const baseUrl = process.env.AI_BASE_URL || 'https://api.moonshot.cn/v1'
-  const model = process.env.AI_MODEL || 'moonshot-v1-8k'
+  const apiKey = getSetting('AI_API_KEY')
+  const baseUrl = getSetting('AI_BASE_URL', 'https://api.moonshot.cn/v1')
+  const model = getSetting('AI_MODEL', 'moonshot-v1-32k')
   if (!apiKey) return { article_id: articleId, ok: false, error: 'no API key' }
 
   let raw: string

@@ -31,7 +31,8 @@ export async function fetchSource(sourceId: number) {
 
   let inserted = 0
   const newIds: number[] = []
-  const insertMany = db.transaction((items: Parameters<typeof insert>[0][]) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const insertMany = db.transaction((items: any[]) => {
     for (const item of items) {
       const result = insert.run(item)
       if (result.changes > 0) {
@@ -64,7 +65,7 @@ export async function fetchSource(sourceId: number) {
       url: item.link || null,
       summary: item.contentSnippet || item.summary || null,
       content: item['content:encoded'] || item.content || null,
-      author: item.creator || item.author || null,
+      author: item.creator || (item as Record<string, unknown>).author as string | null || null,
       published_at,
       audio_url: audioUrl,
     }

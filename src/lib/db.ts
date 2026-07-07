@@ -94,8 +94,21 @@ function migrate(db: Database.Database) {
 
   // articles.title NOT NULL → NULL（支持 Twitter 无标题推文）
   // SQLite 不能 ALTER COLUMN，检查当前定义是否需要重建
+  // 修复知识库扩展表的外键引用（历史迁移残留 articles_old2）
+  const brokenTables = (db.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%articles_old%'`).all() as { name: string }[]).map(r => r.name)
+  if (brokenTables.length > 0) {
+    db.pragma('foreign_keys = OFF')
+    for (const tbl of brokenTables) {
+      const oldSql = (db.prepare(`SELECT sql FROM sqlite_master WHERE name=?`).get(tbl) as { sql: string }).sql
+      const newSql = oldSql.replace(/REFERENCES "articles_old\d*"\(id\)/g, 'REFERENCES articles(id)')
+                           .replace(`CREATE TABLE ${tbl}`, `CREATE TABLE ${tbl}_fixed`)
+      db.exec(`ALTER TABLE ${tbl} RENAME TO ${tbl}_bak; ${newSql}; INSERT INTO ${tbl}_fixed SELECT * FROM ${tbl}_bak; DROP TABLE ${tbl}_bak; ALTER TABLE ${tbl}_fixed RENAME TO ${tbl};`)
+    }
+    db.pragma('foreign_keys = ON')
+  }
+
   const articleSql = (db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='articles'`).get() as { sql: string } | undefined)?.sql || ''
-  if (articleSql.includes('title                TEXT NOT NULL')) {
+  if (articleSql.includes('title                TEXT NOT NULL') || articleSql.includes('sources_old')) {
     db.pragma('foreign_keys = OFF')
     db.exec(`
       ALTER TABLE articles RENAME TO articles_old;
@@ -127,6 +140,32 @@ function migrate(db: Database.Database) {
   if (!cols.includes('transcription_status')) {
     db.exec(`ALTER TABLE articles ADD COLUMN transcription_status TEXT NOT NULL DEFAULT 'none'`)
   }
+  if (!cols.includes('transcription')) {
+    db.exec(`ALTER TABLE articles ADD COLUMN transcription TEXT`)
+  }
+  if (!cols.includes('transcription_task_id')) {
+    db.exec(`ALTER TABLE articles ADD COLUMN transcription_task_id TEXT`)
+  }
+
+  // 草稿表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS drafts (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      title      TEXT NOT NULL DEFAULT '无标题',
+      content    TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
+
+  // 配置表（优先级高于 .env.local）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `)
 
   // 知识库索引扩展表（幂等建表）
   db.exec(`
@@ -247,11 +286,18 @@ function migrate(db: Database.Database) {
       PRIMARY KEY (article_id, related_article_id, relation_type)
     );
 
-    -- 常用索引
+    -- 常用索引（幂等）
     CREATE INDEX IF NOT EXISTS idx_article_meta_content_type ON article_meta(content_type);
     CREATE INDEX IF NOT EXISTS idx_article_meta_time_horizon ON article_meta(time_horizon);
     CREATE INDEX IF NOT EXISTS idx_article_factors_name      ON article_factors(factor_name);
     CREATE INDEX IF NOT EXISTS idx_article_assets_code       ON article_assets(asset_code);
     CREATE INDEX IF NOT EXISTS idx_article_tags_tag          ON article_tags(tag_id);
   `)
+}
+
+// 读取配置：DB 优先，fallback 到 env
+export function getSetting(key: string, fallback?: string): string | undefined {
+  const db = getDb()
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
+  return row?.value ?? process.env[key] ?? fallback
 }
