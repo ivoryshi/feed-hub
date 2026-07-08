@@ -86,6 +86,15 @@ rss / wechat / podcast / obsidian / twitter
 - 免费额度：100小时/月
 - 需配置：`DASHSCOPE_API_KEY`
 
+### WeWeRSS 配置
+- Docker 镜像：`cooderl/wewe-rss-sqlite:latest`（与本地版本保持一致，不要用 `wewe-rss:latest`，DB schema 不同）
+- 数据目录：`/opt/wewerss/data/wewe-rss.db`
+- 端口：4000（内部），通过 Nginx 反代到 `rss.feedhubs.org`
+- Feed URL 格式：`http://localhost:4000/feeds/{MP_ID}.atom?limit=50`
+  - **limit 当前设为 50**，后期扩容时统一修改所有来源 URL
+  - ⚠️ 默认不带 limit 参数只返回 10 条，新增公众号来源时必须手动加 `?limit=50`
+  - limit 数值变更前需和用户确认，不要自行决定
+
 ### Twitter/X 接入方式
 - 通过 RSSHub 公共实例转 RSS
 - URL 格式：`https://rsshub.app/twitter/user/:username`
