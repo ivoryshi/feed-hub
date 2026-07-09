@@ -103,6 +103,22 @@ rss / wechat / podcast / obsidian / twitter
 - 免费额度：100小时/月
 - 需配置：`DASHSCOPE_API_KEY`
 
+### 微信全文获取架构（本地回填代理）
+- **微信封锁所有机房 IP**：ECS 直连、WeWeRSS mode=fulltext、Jina Reader 全部拿到「环境异常」验证页（2026-07-09 验证），只有住宅 IP 能取到全文
+- 架构：ECS 提供 `/api/backfill` API（GET 待回填清单 / POST 回传正文，`x-backfill-token` 鉴权，token 在 settings 表 `BACKFILL_TOKEN` 和本机 `~/.feedhub/backfill-token`）
+- 本机脚本 `scripts/backfill-local.mjs` 用浏览器 UA 抓 mp.weixin.qq.com，每篇间隔 4-7s，连续 3 次被拦自动终止本轮
+- launchd `com.feedhub.backfill.plist` 每天 09:30 跑一次（ECS cron 08:00 抓完新文章后）
+- 质量守卫：POST 端拒绝含「环境异常」或剥离后 <200 字的内容；processor 对 <200 字正文拒绝分析（防止模型凭标题编造总结）
+- Nginx `client_max_body_size 10m`（微信页面 HTML 数百 KB，默认 1m 会 413）
+
+### AI 深度总结与打标（skill：my vault/05-自媒体/素材库/skill.md）
+- prompt 集中在 `src/lib/processor.ts` → `buildPrompt`：约500字深度总结＋小标题大纲＋金句＋分类标签
+- 送模型前 `stripHtml()` 剥离 HTML（WeWeRSS 存的是整页 HTML，不剥离模型只能读到 CSS 样板）
+- word_count/reading_minutes 由代码按纯文本确定性计算（400字/分钟），不让模型估
+- 标签分类体系：market/sector/theme/style/person/institution/other，存 tags.category，前端按分类配色
+- article_meta 扩展列：section_outline(JSON) / golden_quotes(JSON) / word_count / reading_minutes
+- max_tokens=4000 防输出截断；模型配置注意：settings 表 AI_MODEL 曾被误设为 8k 导致质量问题，应为 moonshot-v1-32k
+
 ### WeWeRSS 配置
 - Docker 镜像：`cooderl/wewe-rss-sqlite:latest`（与本地版本保持一致，不要用 `wewe-rss:latest`，DB schema 不同）
 - 数据目录：`/opt/wewerss/data/wewe-rss.db`
@@ -148,4 +164,7 @@ rss / wechat / podcast / obsidian / twitter
 | 2026-07-07 | Google Drive importer 代码完成（gdrive-importer.ts），待配置 Service Account |
 | 2026-07-07 | next.config.js 修正为 Next.js 14 正确语法（experimental.serverComponentsExternalPackages） |
 | 2026-07-09 | WeWeRSS limit 集中化：fetcher 自动追加 limit=300，废除 URL 手写参数；FETCH_ITEM_CAP 100→300 |
+| 2026-07-09 | AI 深度总结与打标 skill 落地：500字总结+大纲+金句+分类标签，article_meta 扩展4列 |
+| 2026-07-09 | 发现微信封锁机房 IP，建立本地回填代理架构（/api/backfill + backfill-local.mjs + launchd） |
+| 2026-07-09 | fetcher 加 mode=fulltext 与空正文回填；processor 加短内容防幻觉守卫 |
 | 2026-07-09 | Google Drive 同步上线：gcloud CLI 建 SA（绕过网页控制台被墙），首次同步导入 11 篇；obsidian source 退出 RSS 抓取循环 |

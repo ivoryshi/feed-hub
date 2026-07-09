@@ -18,11 +18,13 @@ const WEWERSS_FEED_LIMIT = 300
 // 单次抓取处理条数上限（所有来源通用）
 const FETCH_ITEM_CAP = 300
 
-// WeWeRSS 来源统一自动追加 limit 参数，URL 里无需手写
+// WeWeRSS 来源统一自动追加 limit + fulltext 参数，URL 里无需手写
+// mode=fulltext：WeWeRSS 默认只输出标题+链接，必须加此参数才有正文（AI 总结依赖全文）
 function buildFeedUrl(url: string): string {
   if (!url.includes('localhost:4000/feeds/')) return url
   const u = new URL(url)
   u.searchParams.set('limit', String(WEWERSS_FEED_LIMIT))
+  u.searchParams.set('mode', 'fulltext')
   return u.toString()
 }
 
@@ -43,7 +45,16 @@ export async function fetchSource(sourceId: number) {
       (@source_id, @guid, @title, @url, @summary, @content, @author, @published_at, @audio_url)
   `)
 
+  // 已存在但正文为空的文章，用新抓到的全文回填（历史数据自愈）
+  const backfill = db.prepare(`
+    UPDATE articles SET content = @content
+    WHERE source_id = @source_id AND guid = @guid
+      AND COALESCE(LENGTH(content), 0) < 200
+      AND LENGTH(@content) >= 200
+  `)
+
   let inserted = 0
+  let backfilled = 0
   const newIds: number[] = []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const insertMany = db.transaction((items: any[]) => {
@@ -52,6 +63,9 @@ export async function fetchSource(sourceId: number) {
       if (result.changes > 0) {
         inserted++
         newIds.push(result.lastInsertRowid as number)
+      } else if (item.content) {
+        const r = backfill.run({ source_id: item.source_id, guid: item.guid, content: item.content })
+        if (r.changes > 0) backfilled++
       }
     }
   })
@@ -88,7 +102,7 @@ export async function fetchSource(sourceId: number) {
   insertMany(items)
   db.prepare(`UPDATE sources SET last_fetched_at = datetime('now') WHERE id = ?`).run(sourceId)
 
-  return { inserted, total: items.length, newIds }
+  return { inserted, backfilled, total: items.length, newIds }
 }
 
 export async function fetchAllSources() {

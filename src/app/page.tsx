@@ -35,8 +35,34 @@ type Article = {
   sector: string | null
   processed_at: string | null
   factors_raw: string | null
+  section_outline: string | null
+  golden_quotes: string | null
+  word_count: number | null
+  reading_minutes: number | null
+  tags_raw: string | null
   title_snippet?: string
   summary_snippet?: string
+}
+
+// 标签分类 → 前端样式（skill：标签按分类差异化展示）
+const TAG_CATEGORY_STYLES: Record<string, string> = {
+  market:      'bg-blue-50 text-blue-600',
+  sector:      'bg-orange-50 text-orange-600',
+  theme:       'bg-gray-100 text-gray-600',
+  style:       'bg-indigo-50 text-indigo-600',
+  person:      'bg-teal-50 text-teal-600',
+  institution: 'bg-purple-50 text-purple-600',
+  other:       'bg-gray-50 text-gray-400',
+  topic:       'bg-gray-100 text-gray-600', // 旧数据兼容
+}
+
+function parseTagsRaw(raw: string | null): { name: string; category: string }[] {
+  if (!raw) return []
+  return raw.split('||').map(pair => {
+    const i = pair.indexOf(':')
+    if (i === -1) return { name: pair, category: 'other' }
+    return { category: pair.slice(0, i), name: pair.slice(i + 1) }
+  }).filter(t => t.name)
 }
 
 const CONTENT_TYPE_LABELS: Record<string, { label: string; cls: string }> = {
@@ -677,9 +703,43 @@ export default function Home() {
                                 ) : (
                                   displaySummary && (
                                     <div className="mt-1.5">
+                                      {a.summary_ai && (a.word_count || a.reading_minutes) && (
+                                        <p className="text-[10px] text-gray-400 mb-0.5">
+                                          {a.word_count ? `全文约 ${a.word_count} 字` : ''}
+                                          {a.word_count && a.reading_minutes ? ' · ' : ''}
+                                          {a.reading_minutes ? `阅读约 ${a.reading_minutes} 分钟` : ''}
+                                        </p>
+                                      )}
                                       <p className={`text-xs ${expandedSummary[a.id] ? '' : 'line-clamp-5'} ${a.summary_ai ? 'text-gray-600' : 'text-gray-400'}`}
                                         dangerouslySetInnerHTML={{ __html: a.summary_snippet || displaySummary }}
                                       />
+                                      {expandedSummary[a.id] && (() => {
+                                        let outline: { heading: string; summary: string }[] = []
+                                        let quotes: string[] = []
+                                        try { outline = a.section_outline ? JSON.parse(a.section_outline) : [] } catch { /* 旧数据 */ }
+                                        try { quotes = a.golden_quotes ? JSON.parse(a.golden_quotes) : [] } catch { /* 旧数据 */ }
+                                        return (
+                                          <>
+                                            {outline.length > 0 && (
+                                              <div className="mt-2 border-l-2 border-gray-200 pl-2.5 space-y-1">
+                                                {outline.map((o, i) => (
+                                                  <p key={i} className="text-xs text-gray-500">
+                                                    <span className="font-medium text-gray-600">{o.heading}</span>
+                                                    {o.summary ? ` — ${o.summary}` : ''}
+                                                  </p>
+                                                ))}
+                                              </div>
+                                            )}
+                                            {quotes.length > 0 && (
+                                              <div className="mt-2 space-y-1">
+                                                {quotes.map((q, i) => (
+                                                  <p key={i} className="text-xs text-amber-700/80 bg-amber-50/60 rounded px-2 py-1">「{q}」</p>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </>
+                                        )
+                                      })()}
                                       {a.summary_ai && a.summary_ai.length > 120 && (
                                         <button
                                           onClick={() => setExpandedSummary(s => ({ ...s, [a.id]: !s[a.id] }))}
@@ -707,6 +767,24 @@ export default function Home() {
                                 ))}
                               </div>
                             )}
+                            {(() => {
+                              const articleTags = parseTagsRaw(a.tags_raw)
+                              if (articleTags.length === 0) return null
+                              const shown = expandedSummary[a.id] ? articleTags : articleTags.slice(0, 10)
+                              return (
+                                <div className="flex flex-wrap gap-1 mt-1.5">
+                                  {shown.map(t => (
+                                    <span key={t.category + t.name}
+                                      className={`text-[10px] px-1.5 py-0.5 rounded ${TAG_CATEGORY_STYLES[t.category] || TAG_CATEGORY_STYLES.other}`}>
+                                      {t.name}
+                                    </span>
+                                  ))}
+                                  {!expandedSummary[a.id] && articleTags.length > 10 && (
+                                    <span className="text-[10px] px-1 py-0.5 text-gray-400">+{articleTags.length - 10}</span>
+                                  )}
+                                </div>
+                              )
+                            })()}
                           </div>
                           <div className="flex flex-col items-end gap-1.5 shrink-0">
                             {isPodcast && a.transcription_status !== 'done' && (

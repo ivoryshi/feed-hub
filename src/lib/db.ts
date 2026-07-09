@@ -293,6 +293,13 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_article_assets_code       ON article_assets(asset_code);
     CREATE INDEX IF NOT EXISTS idx_article_tags_tag          ON article_tags(tag_id);
   `)
+
+  // article_meta 深度总结扩展列（skill：自媒体内容总结及打标）
+  const metaCols = (db.prepare(`PRAGMA table_info(article_meta)`).all() as { name: string }[]).map(c => c.name)
+  if (!metaCols.includes('section_outline')) db.exec(`ALTER TABLE article_meta ADD COLUMN section_outline TEXT`)
+  if (!metaCols.includes('golden_quotes'))   db.exec(`ALTER TABLE article_meta ADD COLUMN golden_quotes TEXT`)
+  if (!metaCols.includes('word_count'))      db.exec(`ALTER TABLE article_meta ADD COLUMN word_count INTEGER`)
+  if (!metaCols.includes('reading_minutes')) db.exec(`ALTER TABLE article_meta ADD COLUMN reading_minutes INTEGER`)
 }
 
 // 读取配置：DB 优先，fallback 到 env
