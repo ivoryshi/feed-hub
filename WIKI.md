@@ -66,10 +66,12 @@ rss / wechat / podcast / obsidian / twitter
 - ECS crontab：`0 8 * * * curl -s http://localhost:3000/api/fetch >> /var/log/feedhub-cron.log 2>&1`
 
 ### Obsidian 导入规则
-- 优先：Google Drive（需配置 `GDRIVE_CLIPPINGS_FOLDER_ID` + `GOOGLE_SERVICE_ACCOUNT_JSON`）
-- 降级：本地路径 `~/Desktop/My Vault/Clippings/`
+- 优先：Google Drive（`GDRIVE_CLIPPINGS_FOLDER_ID` + `GOOGLE_SERVICE_ACCOUNT_JSON`，已于 2026-07-09 配置于 ECS settings 表）
+- Service Account：`feedhub-sync@feedhub-sync-66522.iam.gserviceaccount.com`（GCP 项目 feedhub-sync-66522，vault 根目录已共享查看权限，密钥只存 DB 不落盘）
+- 降级：本地路径 `~/Desktop/My Vault/Clippings/`（仅本地开发时生效）
 - 触发条件：frontmatter `tags` 含 `clippings`
-- 去重 key：文件名（guid）
+- 去重 key：文件名（guid），跨设备迁移后依然有效
+- obsidian 类型 source 不参与 RSS 抓取循环（fetchAllSources 已排除）
 
 ### 配置管理
 - 配置优先级：DB `settings` 表 > `.env.local` > 代码默认值
@@ -131,3 +133,4 @@ rss / wechat / podcast / obsidian / twitter
 | 2026-07-07 | Google Drive importer 代码完成（gdrive-importer.ts），待配置 Service Account |
 | 2026-07-07 | next.config.js 修正为 Next.js 14 正确语法（experimental.serverComponentsExternalPackages） |
 | 2026-07-09 | WeWeRSS limit 集中化：fetcher 自动追加 limit=300，废除 URL 手写参数；FETCH_ITEM_CAP 100→300 |
+| 2026-07-09 | Google Drive 同步上线：gcloud CLI 建 SA（绕过网页控制台被墙），首次同步导入 11 篇；obsidian source 退出 RSS 抓取循环 |

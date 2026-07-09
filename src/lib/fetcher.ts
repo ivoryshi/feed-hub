@@ -93,7 +93,8 @@ export async function fetchSource(sourceId: number) {
 
 export async function fetchAllSources() {
   const db = getDb()
-  const sources = db.prepare('SELECT id FROM sources WHERE enabled = 1').all() as { id: number }[]
+  // obsidian 类型走独立 importer（Google Drive / 本地），不走 RSS 解析
+  const sources = db.prepare("SELECT id FROM sources WHERE enabled = 1 AND type != 'obsidian'").all() as { id: number }[]
 
   const results = []
   for (const { id } of sources) {
