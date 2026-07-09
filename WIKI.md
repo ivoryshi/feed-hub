@@ -90,10 +90,12 @@ rss / wechat / podcast / obsidian / twitter
 - Docker 镜像：`cooderl/wewe-rss-sqlite:latest`（与本地版本保持一致，不要用 `wewe-rss:latest`，DB schema 不同）
 - 数据目录：`/opt/wewerss/data/wewe-rss.db`
 - 端口：4000（内部），通过 Nginx 反代到 `rss.feedhubs.org`
-- Feed URL 格式：`http://localhost:4000/feeds/{MP_ID}.atom?limit=50`
-  - **limit 当前设为 50**，后期扩容时统一修改所有来源 URL
-  - ⚠️ 默认不带 limit 参数只返回 10 条，新增公众号来源时必须手动加 `?limit=50`
+- Feed URL 格式：`http://localhost:4000/feeds/{MP_ID}.atom`（**不要手写 limit 参数**）
+  - limit 由 fetcher 统一自动追加，集中配置在 `src/lib/fetcher.ts` → `WEWERSS_FEED_LIMIT`（当前 300）
+  - 同文件 `FETCH_ITEM_CAP`（单次抓取处理上限，当前 300）必须 >= `WEWERSS_FEED_LIMIT`，两处联动
+  - ⚠️ WeWeRSS 默认不带 limit 只返回 10 条——2026-07-09 曾因手写 limit 漏配导致 2030FY 只抓 10 篇
   - limit 数值变更前需和用户确认，不要自行决定
+- 抓取停滞排查方法（2026-07-09 中金点睛案例）：对比 WeWeRSS DB `articles` 表最新 publish_time 与 feedhub 侧最新 published_at——两边一致说明管道无漏，是 WeWeRSS 爬虫层被微信限制（日志特征 `getMpArticles(...) articles: 0`）
 
 ### Twitter/X 接入方式
 - 通过 RSSHub 公共实例转 RSS
@@ -128,3 +130,4 @@ rss / wechat / podcast / obsidian / twitter
 | 2026-07-07 | WeWeRSS Docker 部署 + 数据迁移，公众号入库 tab（rss.feedhubs.org） |
 | 2026-07-07 | Google Drive importer 代码完成（gdrive-importer.ts），待配置 Service Account |
 | 2026-07-07 | next.config.js 修正为 Next.js 14 正确语法（experimental.serverComponentsExternalPackages） |
+| 2026-07-09 | WeWeRSS limit 集中化：fetcher 自动追加 limit=300，废除 URL 手写参数；FETCH_ITEM_CAP 100→300 |

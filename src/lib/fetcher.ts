@@ -12,6 +12,20 @@ const parser = new Parser<Record<string, unknown>, CustomItem>({
   },
 })
 
+// WeWeRSS feed 单次输出条数（不加参数时 WeWeRSS 默认只吐 10 条）
+// 变更此值前需和用户确认；FETCH_ITEM_CAP 必须 >= 此值
+const WEWERSS_FEED_LIMIT = 300
+// 单次抓取处理条数上限（所有来源通用）
+const FETCH_ITEM_CAP = 300
+
+// WeWeRSS 来源统一自动追加 limit 参数，URL 里无需手写
+function buildFeedUrl(url: string): string {
+  if (!url.includes('localhost:4000/feeds/')) return url
+  const u = new URL(url)
+  u.searchParams.set('limit', String(WEWERSS_FEED_LIMIT))
+  return u.toString()
+}
+
 export async function fetchSource(sourceId: number) {
   const db = getDb()
   const source = db.prepare('SELECT * FROM sources WHERE id = ?').get(sourceId) as {
@@ -20,7 +34,7 @@ export async function fetchSource(sourceId: number) {
 
   if (!source) throw new Error(`Source ${sourceId} not found`)
 
-  const feed = await parser.parseURL(source.url)
+  const feed = await parser.parseURL(buildFeedUrl(source.url))
 
   const insert = db.prepare(`
     INSERT OR IGNORE INTO articles
@@ -42,7 +56,7 @@ export async function fetchSource(sourceId: number) {
     }
   })
 
-  const items = (feed.items || []).slice(0, 100).map(item => {
+  const items = (feed.items || []).slice(0, FETCH_ITEM_CAP).map(item => {
     const audioUrl = item.enclosure?.url && item.enclosure.type?.startsWith('audio')
       ? item.enclosure.url
       : null
