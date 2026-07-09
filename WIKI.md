@@ -73,6 +73,21 @@ rss / wechat / podcast / obsidian / twitter
 - 去重 key：文件名（guid），跨设备迁移后依然有效
 - obsidian 类型 source 不参与 RSS 抓取循环（fetchAllSources 已排除）
 
+### Google Drive 文件夹 ID 备查（vault 根目录已整体共享给 SA）
+| 文件夹 | ID |
+|---|---|
+| vault 根目录 | `1huP1nXnSnf5jpDmVmmAd3dbGFLrt33IT` |
+| Clippings（当前同步目标） | `1y8DkMWvwOmhiQ-MiPpvO8Kiz15A-DksB` |
+| 01-思考 | `1QV2HQ7E_z5my3sqLFACxaM5m4adYQXGF` |
+| 02-wiki | `1ActIm3O37SIv1zvafacTjl2Mhn4QnNA2` |
+| 03-产品规划 | `1fgnWNENZucibecUmWQq3xkowOBKkihd7` |
+| 04-投研 | `1o5oNbxaWUiPw0J_06MsQrZQViGcycYGk` |
+| 05-自媒体 | `1oSAp_WDZ306u8y8OB6fGYzB0CvWCjW7r` |
+| 06-选题 | `1nyH3w8A77qgJpXizg33QJr3XfoJLdtpj` |
+| 07-日常 | `1bSv940LPHnCVu_QtO-PV17MsVWuDruWP` |
+| 08-归档 | `1VkCMlYXmrKF685wDmFEgpw3_0ZpfFJfI` |
+| 00-inbox | `1z1vCot0ynm59tuRSleVogP9j5fcZBxMD` |
+
 ### 配置管理
 - 配置优先级：DB `settings` 表 > `.env.local` > 代码默认值
 - 前端配置面板支持的 key：`AI_VENDOR` / `AI_API_KEY` / `AI_BASE_URL` / `AI_MODEL` / `DASHSCOPE_API_KEY` / `GDRIVE_CLIPPINGS_FOLDER_ID` / `GOOGLE_SERVICE_ACCOUNT_JSON`
