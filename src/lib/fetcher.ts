@@ -18,14 +18,20 @@ const WEWERSS_FEED_LIMIT = 300
 // 单次抓取处理条数上限（所有来源通用）
 const FETCH_ITEM_CAP = 300
 
-// WeWeRSS 来源统一自动追加 limit + fulltext 参数，URL 里无需手写
-// mode=fulltext：WeWeRSS 默认只输出标题+链接，必须加此参数才有正文（AI 总结依赖全文）
+// WeWeRSS 来源统一自动追加 limit 参数，URL 里无需手写
+// ⚠️ 不要加 mode=fulltext：微信封锁机房 IP，ECS 侧取全文永远只会拿到「环境异常」验证页
+// 并污染 summary/content（2026-07-10 事故）。微信正文一律由本地回填代理（backfill-local.mjs）补
 function buildFeedUrl(url: string): string {
   if (!url.includes('localhost:4000/feeds/')) return url
   const u = new URL(url)
   u.searchParams.set('limit', String(WEWERSS_FEED_LIMIT))
-  u.searchParams.set('mode', 'fulltext')
   return u.toString()
+}
+
+// 兜底：验证页内容一律置空，防止污染入库
+function sanitize(v: string | null): string | null {
+  if (!v) return v
+  return v.includes('环境异常') ? null : v
 }
 
 export async function fetchSource(sourceId: number) {
@@ -91,8 +97,8 @@ export async function fetchSource(sourceId: number) {
       guid: item.guid || item.link || item.title || String(Date.now()),
       title,
       url: item.link || null,
-      summary: item.contentSnippet || item.summary || null,
-      content: item['content:encoded'] || item.content || null,
+      summary: sanitize(item.contentSnippet || item.summary || null),
+      content: sanitize(item['content:encoded'] || item.content || null),
       author: item.creator || (item as Record<string, unknown>).author as string | null || null,
       published_at,
       audio_url: audioUrl,
