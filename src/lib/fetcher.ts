@@ -18,13 +18,15 @@ const WEWERSS_FEED_LIMIT = 300
 // 单次抓取处理条数上限（所有来源通用）
 const FETCH_ITEM_CAP = 300
 
-// WeWeRSS 来源统一自动追加 limit 参数，URL 里无需手写
-// ⚠️ 不要加 mode=fulltext：微信封锁机房 IP，ECS 侧取全文永远只会拿到「环境异常」验证页
-// 并污染 summary/content（2026-07-10 事故）。微信正文一律由本地回填代理（backfill-local.mjs）补
+// WeWeRSS 来源统一自动追加 limit + fulltext 参数，URL 里无需手写
+// ⚠️ mode=fulltext 在 ECS（机房 IP）上常被微信拦截返回「环境异常」验证页（2026-07-10 事故），
+// 必须配合下方 sanitize() 兜底：验证页入库前置空，真实全文则直接保留；
+// 被置空的由本地回填代理（backfill-local.mjs，住宅 IP）补全
 function buildFeedUrl(url: string): string {
   if (!url.includes('localhost:4000/feeds/')) return url
   const u = new URL(url)
   u.searchParams.set('limit', String(WEWERSS_FEED_LIMIT))
+  u.searchParams.set('mode', 'fulltext')
   return u.toString()
 }
 
