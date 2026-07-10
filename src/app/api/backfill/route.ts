@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDb, getSetting } from '@/lib/db'
-import { stripHtml } from '@/lib/processor'
+import { stripHtml, processArticle } from '@/lib/processor'
 
 // 本地回填代理专用 API：微信封锁机房 IP，全文由用户本机（住宅 IP）抓取后回传
 // 鉴权：请求头 x-backfill-token 必须等于设置项 BACKFILL_TOKEN
@@ -56,6 +56,13 @@ export async function POST(req: NextRequest) {
     UPDATE articles SET content = ?
     WHERE id = ? AND COALESCE(LENGTH(content), 0) < 200
   `).run(content, id)
+
+  // 时序补偿：每日 cron 08:00 抓到新文章时正文还没回填，AI 分析被守卫拒绝；
+  // 回填成功且尚未分析过的文章在此补触发（fire-and-forget，不阻塞回填节奏）
+  if (r.changes > 0) {
+    const hasMeta = db.prepare('SELECT 1 FROM article_meta WHERE article_id = ?').get(id)
+    if (!hasMeta) processArticle(id).catch(() => {})
+  }
 
   return NextResponse.json({ ok: true, updated: r.changes, clean_length: cleanLen })
 }
