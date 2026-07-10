@@ -61,14 +61,16 @@ data/feed-hub.db   # SQLite，gitignore 中，不进版本库
 rss / wechat / podcast / obsidian / twitter
 ```
 
-### 定时任务（三级流水线，北京时间，一天两轮）
+### 定时任务（三级流水线，北京时间，一天四轮）
 | 时间 | 任务 | 位置 |
 |---|---|---|
-| 07:00 / 13:00 | WeWeRSS 爬公众号 | ECS Docker env `CRON_EXPRESSION="0 7,13 * * *"` + `TZ=Asia/Shanghai` |
-| 07:30 / 13:30 | feedhub 抓取+AI分析 | ECS crontab `30 7,13 * * *` → GET `/api/fetch` |
-| 08:30 / 14:30 | 微信正文回填+补分析 | Mac launchd `com.feedhub.backfill.plist` |
-- ⚠️ 三级顺序不能乱：公众号早晨发文 → WeWeRSS 先爬到 → feedhub 才抓得到 → 回填后才有全文可分析
+| 07/11/15/19:00 | WeWeRSS 爬公众号 | ECS Docker env `CRON_EXPRESSION="0 7,11,15,19 * * *"` + `TZ=Asia/Shanghai` |
+| 07/11/15/19:30 | feedhub 抓取+AI分析 | ECS crontab `30 7,11,15,19 * * *` → GET `/api/fetch` |
+| 08/12/16/20:30 | 微信正文回填+补分析 | Mac launchd `com.feedhub.backfill.plist` |
+- ⚠️ 三级顺序不能乱：公众号发文 → WeWeRSS 先爬到 → feedhub 才抓得到 → 回填后才有全文可分析
 - 2026-07-10 曾因 WeWeRSS 01:35/13:35 爬取与 feedhub 08:00 抓取错位，导致早晨发文延迟一天才入库
+- ⚠️ WeWeRSS 上游局限（微信读书接口）：同一公众号一天多次推送只保留最新一次，爬取没赶上的会永久漏掉
+  （2026-07-08 2030FY《深扒Anthropic》案例）——一天四轮把漏抓窗口压到 4 小时，无法彻底根治
 - 日志：ECS `/var/log/feedhub-cron.log`，Mac `/tmp/feedhub-backfill.log`
 
 ### Obsidian 导入规则
