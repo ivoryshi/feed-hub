@@ -61,9 +61,15 @@ data/feed-hub.db   # SQLite，gitignore 中，不进版本库
 rss / wechat / podcast / obsidian / twitter
 ```
 
-### 定时任务
-- **每天 08:00（ECS 服务器时间）**：GET `/api/fetch` → 抓取所有 RSS/WeChat/Podcast + Obsidian 导入
-- ECS crontab：`0 8 * * * curl -s http://localhost:3000/api/fetch >> /var/log/feedhub-cron.log 2>&1`
+### 定时任务（三级流水线，北京时间，一天两轮）
+| 时间 | 任务 | 位置 |
+|---|---|---|
+| 07:00 / 13:00 | WeWeRSS 爬公众号 | ECS Docker env `CRON_EXPRESSION="0 7,13 * * *"` + `TZ=Asia/Shanghai` |
+| 07:30 / 13:30 | feedhub 抓取+AI分析 | ECS crontab `30 7,13 * * *` → GET `/api/fetch` |
+| 08:30 / 14:30 | 微信正文回填+补分析 | Mac launchd `com.feedhub.backfill.plist` |
+- ⚠️ 三级顺序不能乱：公众号早晨发文 → WeWeRSS 先爬到 → feedhub 才抓得到 → 回填后才有全文可分析
+- 2026-07-10 曾因 WeWeRSS 01:35/13:35 爬取与 feedhub 08:00 抓取错位，导致早晨发文延迟一天才入库
+- 日志：ECS `/var/log/feedhub-cron.log`，Mac `/tmp/feedhub-backfill.log`
 
 ### Obsidian 导入规则
 - 优先：Google Drive（`GDRIVE_CLIPPINGS_FOLDER_ID` + `GOOGLE_SERVICE_ACCOUNT_JSON`，已于 2026-07-09 配置于 ECS settings 表）
