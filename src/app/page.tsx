@@ -1004,6 +1004,18 @@ export default function Home() {
                 </button>
               ))}
               <div className="flex-1" />
+              {(() => {
+                // 与 processor 口径一致：中文按字、英文按词，400字/分钟
+                const plain = md.replace(/```[\s\S]*?```/g, ' ').replace(/[#*`>\-\[\]()!|]/g, ' ')
+                const cjk = (plain.match(/[一-鿿]/g) || []).length
+                const words = (plain.replace(/[一-鿿]/g, ' ').match(/[a-zA-Z0-9]+/g) || []).length
+                const count = cjk + words
+                return count > 0 ? (
+                  <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                    {count} 字 · 约 {Math.max(1, Math.round(count / 400))} 分钟
+                  </span>
+                ) : null
+              })()}
               <span className="text-[10px] text-gray-300">
                 {currentDraftId ? `草稿 #${currentDraftId}` : '未保存'}
               </span>
