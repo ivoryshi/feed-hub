@@ -61,12 +61,14 @@ data/feed-hub.db   # SQLite，gitignore 中，不进版本库
 rss / wechat / podcast / obsidian / twitter
 ```
 
-### 定时任务（三级流水线，北京时间，一天四轮）
+### 定时任务（三级流水线，北京时间，07:00-23:00 每小时一轮）
 | 时间 | 任务 | 位置 |
 |---|---|---|
-| 07/11/15/19:00 | WeWeRSS 爬公众号 | ECS Docker env `CRON_EXPRESSION="0 7,11,15,19 * * *"` + `TZ=Asia/Shanghai` |
-| 07/11/15/19:30 | feedhub 抓取+AI分析 | ECS crontab `30 7,11,15,19 * * *` → GET `/api/fetch` |
-| 08/12/16/20:30 | 微信正文回填+补分析 | Mac launchd `com.feedhub.backfill.plist` |
+| 每小时 :00（07-23时） | WeWeRSS 爬公众号 | ECS Docker env `CRON_EXPRESSION="0 7-23 * * *"` + `TZ=Asia/Shanghai` |
+| 每小时 :30（07-23时） | feedhub 抓取+AI分析 | ECS crontab `30 7-23 * * *` → GET `/api/fetch` |
+| 每小时 :45（全天） | 微信正文回填+补分析 | Mac launchd `com.feedhub.backfill.plist`（Mac 休眠时自动跳过，无积压风险） |
+- 抓取路径：WeWeRSS 走微信读书接口（云端可跑，不封机房 IP）；mp.weixin.qq.com 文章正文页封机房 IP，全文必须走 Mac 住宅 IP 回填
+- 漏抓兜底：同天多推被微信读书覆盖而漏掉的文章，手动剪藏到 Obsidian Clippings 入库（A+B 方案，2026-07-10 定）
 - ⚠️ 三级顺序不能乱：公众号发文 → WeWeRSS 先爬到 → feedhub 才抓得到 → 回填后才有全文可分析
 - 2026-07-10 曾因 WeWeRSS 01:35/13:35 爬取与 feedhub 08:00 抓取错位，导致早晨发文延迟一天才入库
 - ⚠️ WeWeRSS 上游局限（微信读书接口）：同一公众号一天多次推送只保留最新一次，爬取没赶上的会永久漏掉
