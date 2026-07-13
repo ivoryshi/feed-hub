@@ -117,7 +117,10 @@ rss / wechat / podcast / obsidian / twitter
 - **微信封锁所有机房 IP**：ECS 直连、WeWeRSS mode=fulltext、Jina Reader 全部拿到「环境异常」验证页（2026-07-09 验证），只有住宅 IP 能取到全文
 - 架构：ECS 提供 `/api/backfill` API（GET 待回填清单 / POST 回传正文，`x-backfill-token` 鉴权，token 在 settings 表 `BACKFILL_TOKEN` 和本机 `~/.feedhub/backfill-token`）
 - 本机脚本 `scripts/backfill-local.mjs` 用浏览器 UA 抓 mp.weixin.qq.com，每篇间隔 4-7s，连续 3 次被拦自动终止本轮
-- launchd `com.feedhub.backfill.plist` 每天 09:30 跑一次（ECS cron 08:00 抓完新文章后）
+- launchd 每小时 :45 执行 `~/.feedhub/backfill-local.mjs`
+- ⚠️ launchd 执行的脚本必须放在 `~/.feedhub/`，不能指向 Desktop 路径——macOS TCC 隐私保护会拒绝
+  launchd 进程访问 Desktop（EPERM），导致定时回填静默失败（2026-07-12~13 事故，两天新文章全部无正文无分析）
+- 改动回填脚本后需同步：`cp scripts/backfill-local.mjs ~/.feedhub/`（仓库里是源码，launchd 跑的是拷贝）
 - 质量守卫：POST 端拒绝含「环境异常」或剥离后 <200 字的内容；processor 对 <200 字正文拒绝分析（防止模型凭标题编造总结）
 - Nginx `client_max_body_size 10m`（微信页面 HTML 数百 KB，默认 1m 会 413）
 
